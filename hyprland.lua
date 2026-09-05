@@ -1,11 +1,11 @@
-```lua
 -- Lubai
 -- Mouse-oriented tiling environment
--- Based on the current Hyprland Lua configuration API.
+--
+-- Based on the default Hyprland Lua configuration.
 
---------------------------------------------------
--- MONITOR
---------------------------------------------------
+------------------
+---- MONITORS ----
+------------------
 
 hl.monitor({
     output   = "",
@@ -15,45 +15,55 @@ hl.monitor({
 })
 
 
---------------------------------------------------
--- PROGRAMS
---------------------------------------------------
+---------------------
+---- MY PROGRAMS ----
+---------------------
 
 local terminal    = "kitty"
 local fileManager = "dolphin"
 local menu        = "hyprlauncher"
 
 
---------------------------------------------------
--- ENVIRONMENT
---------------------------------------------------
+-------------------
+---- AUTOSTART ----
+-------------------
+
+-- Reserved for Lubai services/applications.
+
+
+-------------------------------
+---- ENVIRONMENT VARIABLES ----
+-------------------------------
 
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
 
 
---------------------------------------------------
--- LOOK AND FEEL
---------------------------------------------------
+-----------------------
+----- LOOK AND FEEL -----
+-----------------------
 
 hl.config({
     general = {
-        -- Lubai spatial language:
-        -- every tile is separated by the same 20 px space.
+        -- Lubai uses a single spatial unit:
+        -- 20 px between every tile and the screen edge.
         gaps_in  = 20,
         gaps_out = 20,
 
+        -- The gap itself is the visual separation.
         border_size = 0,
 
+        -- Allow the user to resize a tile directly
+        -- from its border/gap.
         resize_on_border = true,
 
         allow_tearing = false,
 
-        -- Tiling foundation.
         layout = "dwindle",
     },
 
     decoration = {
+        -- Tiles have no rounded corners.
         rounding       = 0,
         rounding_power = 2,
 
@@ -75,86 +85,234 @@ hl.config({
 })
 
 
---------------------------------------------------
--- ANIMATIONS
---------------------------------------------------
+--------------------
+---- ANIMATIONS ----
+--------------------
 
-hl.curve("lubai", {
+hl.curve("easeOutQuint", {
     type = "bezier",
     points = {
         {0.23, 1},
         {0.32, 1},
-    },
+    }
+})
+
+hl.curve("easeInOutCubic", {
+    type = "bezier",
+    points = {
+        {0.65, 0.05},
+        {0.36, 1},
+    }
+})
+
+hl.curve("linear", {
+    type = "bezier",
+    points = {
+        {0, 0},
+        {1, 1},
+    }
+})
+
+hl.curve("almostLinear", {
+    type = "bezier",
+    points = {
+        {0.5, 0.5},
+        {0.75, 1},
+    }
+})
+
+hl.curve("quick", {
+    type = "bezier",
+    points = {
+        {0.15, 0},
+        {0.1, 1},
+    }
+})
+
+hl.curve("easy", {
+    type = "spring",
+    mass = 1,
+    stiffness = 238.1191,
+    damping = 24.21279333,
 })
 
 hl.animation({
-    leaf    = "global",
+    leaf = "global",
     enabled = true,
-    speed   = 10,
-    bezier  = "default",
+    speed = 10,
+    bezier = "default",
 })
 
 hl.animation({
-    leaf    = "windows",
+    leaf = "border",
     enabled = true,
-    speed   = 5,
-    spring  = "easy",
+    speed = 5.39,
+    bezier = "easeOutQuint",
 })
 
 hl.animation({
-    leaf    = "windowsIn",
+    leaf = "windows",
     enabled = true,
-    speed   = 4,
-    style   = "popin 87%",
+    speed = 4.79,
+    spring = "easy",
 })
 
 hl.animation({
-    leaf    = "windowsOut",
+    leaf = "windowsIn",
     enabled = true,
-    speed   = 2,
-    style   = "popin 87%",
+    speed = 4.1,
+    spring = "easy",
+    style = "popin 87%",
 })
 
 hl.animation({
-    leaf    = "fadeIn",
+    leaf = "windowsOut",
     enabled = true,
-    speed   = 2,
+    speed = 1.49,
+    bezier = "linear",
+    style = "popin 87%",
 })
 
 hl.animation({
-    leaf    = "fadeOut",
+    leaf = "fadeIn",
     enabled = true,
-    speed   = 2,
+    speed = 1.73,
+    bezier = "almostLinear",
+})
+
+hl.animation({
+    leaf = "fadeOut",
+    enabled = true,
+    speed = 1.46,
+    bezier = "almostLinear",
+})
+
+hl.animation({
+    leaf = "fade",
+    enabled = true,
+    speed = 3.03,
+    bezier = "quick",
+})
+
+hl.animation({
+    leaf = "layers",
+    enabled = true,
+    speed = 3.81,
+    bezier = "easeOutQuint",
+})
+
+hl.animation({
+    leaf = "layersIn",
+    enabled = true,
+    speed = 4,
+    bezier = "easeOutQuint",
+    style = "fade",
+})
+
+hl.animation({
+    leaf = "layersOut",
+    enabled = true,
+    speed = 1.5,
+    bezier = "linear",
+    style = "fade",
+})
+
+hl.animation({
+    leaf = "fadeLayersIn",
+    enabled = true,
+    speed = 1.79,
+    bezier = "almostLinear",
+})
+
+hl.animation({
+    leaf = "fadeLayersOut",
+    enabled = true,
+    speed = 1.39,
+    bezier = "almostLinear",
+})
+
+hl.animation({
+    leaf = "workspaces",
+    enabled = true,
+    speed = 1.94,
+    bezier = "almostLinear",
+    style = "fade",
+})
+
+hl.animation({
+    leaf = "workspacesIn",
+    enabled = true,
+    speed = 1.21,
+    bezier = "almostLinear",
+    style = "fade",
+})
+
+hl.animation({
+    leaf = "workspacesOut",
+    enabled = true,
+    speed = 1.94,
+    bezier = "almostLinear",
+    style = "fade",
+})
+
+hl.animation({
+    leaf = "zoomFactor",
+    enabled = true,
+    speed = 7,
+    bezier = "quick",
 })
 
 
---------------------------------------------------
--- DWINDLE
---------------------------------------------------
+--------------------
+---- DWINDLE -------
+--------------------
 
 hl.config({
     dwindle = {
-        -- Keep the spatial relationship of existing tiles.
+        -- Preserve the existing spatial subdivision.
         preserve_split = true,
     },
 })
 
 
---------------------------------------------------
--- MISC
---------------------------------------------------
+------------------
+---- MASTER ------
+------------------
 
 hl.config({
-    misc = {
-        force_default_wallpaper = -1,
-        disable_hyprland_logo   = true,
+    master = {
+        new_status = "master",
     },
 })
 
 
---------------------------------------------------
--- INPUT
---------------------------------------------------
+---------------------
+---- SCROLLING ------
+---------------------
+
+hl.config({
+    scrolling = {
+        fullscreen_on_one_column = true,
+    },
+})
+
+
+----------------
+----  MISC  ----
+----------------
+
+hl.config({
+    misc = {
+        -- No Hyprland mascot/logo wallpaper.
+        force_default_wallpaper = -1,
+        disable_hyprland_logo = true,
+    },
+})
+
+
+---------------
+---- INPUT ----
+---------------
 
 hl.config({
     input = {
@@ -164,7 +322,6 @@ hl.config({
         kb_options = "",
         kb_rules   = "",
 
-        -- Mouse follows the pointer.
         follow_mouse = 1,
 
         sensitivity = 0,
@@ -176,27 +333,21 @@ hl.config({
 })
 
 
---------------------------------------------------
--- MAIN MODIFIER
---------------------------------------------------
+---------------------
+---- KEYBINDINGS ----
+---------------------
 
 local mainMod = "SUPER"
 
 
---------------------------------------------------
--- KEYBOARD
---------------------------------------------------
+---------------------------
+---- APPLICATIONS ----------
+---------------------------
 
 -- Terminal
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
-)
-
--- Close
-hl.bind(
-    mainMod .. " + C",
-    hl.dsp.window.close()
 )
 
 -- File manager
@@ -211,7 +362,19 @@ hl.bind(
     hl.dsp.exec_cmd(menu)
 )
 
--- Toggle floating
+-- Close current tile/window
+hl.bind(
+    mainMod .. " + C",
+    hl.dsp.window.close()
+)
+
+
+---------------------------
+---- WINDOW BEHAVIOUR -----
+---------------------------
+
+-- Toggle floating.
+-- Kept as a basic escape hatch during development.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -219,16 +382,16 @@ hl.bind(
     })
 )
 
--- Toggle split
+-- Toggle the current dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
 )
 
 
---------------------------------------------------
--- FOCUS
---------------------------------------------------
+---------------------------
+---- FOCUS ----------------
+---------------------------
 
 hl.bind(
     mainMod .. " + left",
@@ -259,9 +422,9 @@ hl.bind(
 )
 
 
---------------------------------------------------
--- WORKSPACES
---------------------------------------------------
+---------------------------
+---- WORKSPACES ------------
+---------------------------
 
 for i = 1, 10 do
     local key = i % 10
@@ -282,12 +445,12 @@ for i = 1, 10 do
 end
 
 
---------------------------------------------------
--- MOUSE-ORIENTED WINDOW CONTROL
---------------------------------------------------
+---------------------------
+---- MOUSE -----------------
+---------------------------
 
 -- Left mouse + SUPER:
--- freely drag a tile/window.
+-- move the current tile/window.
 hl.bind(
     mainMod .. " + mouse:272",
     hl.dsp.window.drag(),
@@ -297,7 +460,7 @@ hl.bind(
 )
 
 -- Right mouse + SUPER:
--- resize the tile from its border.
+-- resize the current tile/window.
 hl.bind(
     mainMod .. " + mouse:273",
     hl.dsp.window.resize(),
@@ -307,12 +470,11 @@ hl.bind(
 )
 
 
---------------------------------------------------
--- WINDOW RULES
---------------------------------------------------
+--------------------------------
+---- WINDOWS AND WORKSPACES ----
+--------------------------------
 
--- Prevent applications from forcing themselves
--- into a different layout through maximize events.
+-- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -324,7 +486,7 @@ hl.window_rule({
 })
 
 
--- XWayland drag fix.
+-- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -341,10 +503,7 @@ hl.window_rule({
 })
 
 
---------------------------------------------------
--- HYPRLAND RUN
---------------------------------------------------
-
+-- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
@@ -352,7 +511,6 @@ hl.window_rule({
         class = "hyprland-run",
     },
 
-    move  = "20 monitor_h-120",
+    move = "20 monitor_h-120",
     float = true,
 })
-```
