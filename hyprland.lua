@@ -19,8 +19,8 @@ hl.monitor({
 ---- MY PROGRAMS ----
 ---------------------
 
-local terminal    = "kitty"
-local fileManager = "dolphin"
+local terminal    = "ghostty"
+local fileManager = "yazi"
 local menu        = "hyprlauncher"
 
 
@@ -40,16 +40,21 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 
 -----------------------
------ LOOK AND FEEL ---
+----- LOOK AND FEEL -----
 -----------------------
 
 hl.config({
     general = {
+        -- Lubai uses a single spatial unit:
+        -- 20 px between every tile and the screen edge.
         gaps_in  = 20,
         gaps_out = 20,
 
+        -- The gap itself is the visual separation.
         border_size = 0,
 
+        -- Allow the user to resize a tile directly
+        -- from its border/gap.
         resize_on_border = true,
 
         allow_tearing = false,
@@ -58,7 +63,8 @@ hl.config({
     },
 
     decoration = {
-        rounding       = 0,
+        -- Tiles have softly rounded corners.
+        rounding       = 10,
         rounding_power = 2,
 
         active_opacity   = 1.0,
@@ -263,6 +269,7 @@ hl.animation({
 
 hl.config({
     dwindle = {
+        -- Preserve the existing spatial subdivision.
         preserve_split = true,
     },
 })
@@ -296,6 +303,7 @@ hl.config({
 
 hl.config({
     misc = {
+        -- No Hyprland mascot/logo wallpaper.
         force_default_wallpaper = -1,
         disable_hyprland_logo = true,
     },
@@ -333,24 +341,28 @@ local mainMod = "SUPER"
 
 
 ---------------------------
----- APPLICATIONS ---------
+---- APPLICATIONS ----------
 ---------------------------
 
+-- Terminal
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
+-- File manager
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
+-- Launcher
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(menu)
 )
 
+-- Close current tile/window
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -361,6 +373,8 @@ hl.bind(
 ---- WINDOW BEHAVIOUR -----
 ---------------------------
 
+-- Toggle floating.
+-- Kept as a basic escape hatch during development.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -368,6 +382,7 @@ hl.bind(
     })
 )
 
+-- Toggle the current dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -408,7 +423,7 @@ hl.bind(
 
 
 ---------------------------
----- WORKSPACES -----------
+---- WORKSPACES ------------
 ---------------------------
 
 for i = 1, 10 do
@@ -431,9 +446,11 @@ end
 
 
 ---------------------------
----- MOUSE ----------------
+---- MOUSE -----------------
 ---------------------------
 
+-- Left mouse + SUPER:
+-- move the current tile/window.
 hl.bind(
     mainMod .. " + mouse:272",
     hl.dsp.window.drag(),
@@ -442,6 +459,8 @@ hl.bind(
     }
 )
 
+-- Right mouse + SUPER:
+-- resize the current tile/window.
 hl.bind(
     mainMod .. " + mouse:273",
     hl.dsp.window.resize(),
@@ -455,6 +474,7 @@ hl.bind(
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
+-- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -466,6 +486,7 @@ hl.window_rule({
 })
 
 
+-- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -482,6 +503,7 @@ hl.window_rule({
 })
 
 
+-- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
