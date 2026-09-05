@@ -1,3 +1,4 @@
+```lua
 -- Lubai
 -- Mouse-oriented tiling environment
 --
@@ -46,8 +47,8 @@ hl.env("HYPRCURSOR_SIZE", "24")
 hl.config({
     general = {
         -- Lubai uses a single spatial unit:
-        -- 20 px between every tile and the screen edge.
-        gaps_in  = 20,
+        -- 10 px between tiles and 20 px from the screen edge.
+        gaps_in  = 10,
         gaps_out = 20,
 
         -- The gap itself is the visual separation.
@@ -514,3 +515,4 @@ hl.window_rule({
     move = "20 monitor_h-120",
     float = true,
 })
+```
