@@ -2,7 +2,7 @@
 -- Mouse-oriented tiling environment
 --
 -- Hyprland is the compositor and tiling/layout backend.
--- Splay will provide the spatial interaction layer.
+-- Splay is the spatial interaction layer.
 
 
 ------------------
@@ -26,6 +26,306 @@ local fileManager = terminal .. " -e yazi"
 local launcher    = terminal .. " -e fsel"
 
 
+--------------------------------
+---- SPLAY ---------------------
+--------------------------------
+
+local splay = {
+    -- Spatial area considered to be a tile border.
+    border_zone = 20,
+
+    -- Maximum time between two clicks to form a double click.
+    double_click_time = 250,
+
+    -- Minimum tile size accepted by Splay.
+    minimum_size = 20,
+
+    -- Visual feedback.
+    border_size = 2,
+
+    colors = {
+        valid   = "rgb(33ccff)",
+        invalid = "rgb(ff3344)",
+    },
+
+    gesture = {
+        candidate = false,
+        direction = nil,
+        window    = nil,
+        double_click_pending = false,
+    },
+}
+
+
+---------------------------
+---- SPLAY HELPERS --------
+---------------------------
+
+local function stop_splay_gesture()
+    splay.gesture.candidate = false
+    splay.gesture.direction = nil
+    splay.gesture.window = nil
+end
+
+
+local function set_splay_border(color)
+    hl.config({
+        general = {
+            border_size = splay.border_size,
+        },
+
+        ["general.col.active_border"] = color,
+    })
+end
+
+
+local function clear_splay_border()
+    hl.config({
+        general = {
+            border_size = 0,
+        },
+    })
+end
+
+
+local function get_window_geometry(window)
+    if window == nil then
+        return nil
+    end
+
+    local position = window.at
+    local size = window.size
+
+    if position == nil or size == nil then
+        return nil
+    end
+
+    return {
+        x = position.x,
+        y = position.y,
+        width = size.x,
+        height = size.y,
+    }
+end
+
+
+local function get_border_direction(window)
+    local geometry = get_window_geometry(window)
+
+    if geometry == nil then
+        return nil
+    end
+
+    local cursor = hl.get_cursor_pos()
+
+    if cursor == nil then
+        return nil
+    end
+
+    local left   = math.abs(cursor.x - geometry.x)
+    local right  = math.abs(cursor.x - (geometry.x + geometry.width))
+    local top    = math.abs(cursor.y - geometry.y)
+    local bottom = math.abs(cursor.y - (geometry.y + geometry.height))
+
+    local nearest = math.min(left, right, top, bottom)
+
+    if nearest > splay.border_zone then
+        return nil
+    end
+
+    if nearest == left then
+        return "l"
+    elseif nearest == right then
+        return "r"
+    elseif nearest == top then
+        return "u"
+    else
+        return "d"
+    end
+end
+
+
+local function begin_splay_candidate()
+    local window = hl.get_active_window()
+
+    if window == nil then
+        stop_splay_gesture()
+        return
+    end
+
+    -- Splay operates on tiled windows.
+    if window.floating then
+        stop_splay_gesture()
+        return
+    end
+
+    local direction = get_border_direction(window)
+
+    if direction == nil then
+        stop_splay_gesture()
+        return
+    end
+
+    splay.gesture.candidate = true
+    splay.gesture.direction = direction
+    splay.gesture.window = window
+
+    set_splay_border(splay.colors.valid)
+end
+
+
+local function create_tile()
+    local direction = splay.gesture.direction
+    local window = splay.gesture.window
+
+    if direction == nil or window == nil then
+        stop_splay_gesture()
+        clear_splay_border()
+        return
+    end
+
+    -- One-shot Dwindle split direction.
+    hl.dispatch(
+        hl.dsp.layout("preselect " .. direction)
+    )
+
+    -- The new tile is a real terminal window.
+    hl.dispatch(
+        hl.dsp.exec_cmd(terminal)
+    )
+
+    stop_splay_gesture()
+    clear_splay_border()
+end
+
+
+local function register_click()
+    local window = hl.get_active_window()
+
+    if window == nil then
+        stop_splay_gesture()
+        clear_splay_border()
+        return
+    end
+
+    local direction = get_border_direction(window)
+
+    if direction == nil then
+        stop_splay_gesture()
+        clear_splay_border()
+        return
+    end
+
+    -- First click.
+    if not splay.gesture.double_click_pending then
+        splay.gesture.double_click_pending = true
+
+        hl.timer(
+            function()
+                splay.gesture.double_click_pending = false
+            end,
+            {
+                timeout = splay.double_click_time,
+                type = "oneshot",
+            }
+        )
+
+        return
+    end
+
+    -- Second click within the double-click interval.
+    splay.gesture.double_click_pending = false
+
+    splay.gesture.candidate = true
+    splay.gesture.direction = direction
+    splay.gesture.window = window
+
+    create_tile()
+end
+
+
+-------------------------------
+---- SPLAY MOUSE INTERACTION ---
+-------------------------------
+
+hl.config({
+    binds = {
+        -- Small enough to distinguish a click from an intentional drag.
+        drag_threshold = 8,
+    },
+})
+
+
+-- Mouse press:
+--
+-- Splay only records whether the cursor is on a valid tile border.
+-- Hyprland itself continues handling the pointer interaction.
+hl.bind(
+    "mouse:272",
+    begin_splay_candidate,
+    {
+        mouse = true,
+        non_consuming = true,
+    }
+)
+
+
+-- Mouse click:
+--
+-- Two consecutive clicks on a tile border become a Splay
+-- "create tile" gesture.
+hl.bind(
+    "mouse:272",
+    register_click,
+    {
+        mouse = true,
+        click = true,
+        non_consuming = true,
+    }
+)
+
+
+-- Mouse drag:
+--
+-- The actual border resize remains Hyprland's responsibility.
+-- Splay only observes the final geometry and rejects a tile
+-- that ended below the minimum size.
+hl.bind(
+    "mouse:272",
+    function()
+        if not splay.gesture.candidate then
+            stop_splay_gesture()
+            clear_splay_border()
+            return
+        end
+
+        local window = splay.gesture.window
+
+        if window ~= nil and window.size ~= nil then
+            if window.size.x < splay.minimum_size
+                or window.size.y < splay.minimum_size then
+
+                hl.dispatch(
+                    hl.dsp.window.close({
+                        window = window,
+                    })
+                )
+
+                set_splay_border(splay.colors.invalid)
+            end
+        end
+
+        stop_splay_gesture()
+        clear_splay_border()
+    end,
+    {
+        mouse = true,
+        drag = true,
+        non_consuming = true,
+    }
+)
+
+
 -------------------------------
 ---- ENVIRONMENT VARIABLES ----
 -------------------------------
@@ -40,14 +340,11 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 hl.config({
     general = {
-        -- Splay spatial unit.
         gaps_in  = 10,
         gaps_out = 20,
 
-        -- The gap is the visual separation between tiles.
         border_size = 0,
 
-        -- Hyprland handles direct tile resizing.
         resize_on_border = true,
 
         allow_tearing = false,
@@ -262,7 +559,6 @@ hl.animation({
 
 hl.config({
     dwindle = {
-        -- Preserve the spatial subdivision tree.
         preserve_split = true,
     },
 })
@@ -314,27 +610,21 @@ local mainMod = "SUPER"
 ---- APPLICATIONS --------
 ---------------------------
 
--- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
--- Open file manager.
--- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
--- Open application launcher.
--- fsel is currently a placeholder launcher for SplayDE.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
 )
 
--- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -345,7 +635,6 @@ hl.bind(
 ---- WINDOW BEHAVIOUR ----
 ---------------------------
 
--- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -353,7 +642,6 @@ hl.bind(
     })
 )
 
--- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -445,7 +733,6 @@ hl.bind(
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
--- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -457,7 +744,6 @@ hl.window_rule({
 })
 
 
--- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -474,7 +760,6 @@ hl.window_rule({
 })
 
 
--- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
