@@ -274,6 +274,11 @@ hl.animation({
 hl.config({
     dwindle = {
         preserve_split = true,
+
+        -- The split ratio belongs to the current window.
+        -- This is important because the current window after
+        -- window.open is the newly created Splay tile.
+        split_bias = 1,
     },
 })
 
@@ -505,7 +510,7 @@ end
 
 
 --------------------------------
----- COLLAPSE NEW TILE ---------
+---- INITIALIZE NEW TILE -------
 --------------------------------
 
 hl.on("window.open", function(window)
@@ -518,50 +523,29 @@ hl.on("window.open", function(window)
         return
     end
 
-    local direction = splay_spawn_direction
-
     splay_spawn_pending = false
     splay_spawn_direction = nil
 
-    if not window.size then
-        return
-    end
-
-    local width  = window.size.x
-    local height = window.size.y
-
 
     --------------------------------
-    -- Horizontal split
+    -- Collapse the new tile using
+    -- the Dwindle split itself.
     --------------------------------
+    --
+    -- 0.1 is the minimum split ratio
+    -- accepted by Dwindle.
+    --
+    -- split_bias = 1 means the ratio
+    -- belongs to the current window,
+    -- which is the newly opened tile.
+    --
 
-    if direction == "l" or direction == "r" then
-
-        hl.dispatch(
-            hl.dsp.window.resize({
-                x = 1,
-                y = height,
-                relative = false,
-                window = window,
-            })
+    hl.dispatch(
+        hl.dsp.layout(
+            "splitratio 0.1 exact"
         )
+    )
 
-
-    --------------------------------
-    -- Vertical split
-    --------------------------------
-
-    elseif direction == "u" or direction == "d" then
-
-        hl.dispatch(
-            hl.dsp.window.resize({
-                x = width,
-                y = 1,
-                relative = false,
-                window = window,
-            })
-        )
-    end
 end)
 
 
