@@ -39,6 +39,27 @@ local splay_spawn_direction = nil
 local splay_new_tile = false
 
 
+--------------------------------
+---- SPLAY RESIZE STATE --------
+--------------------------------
+
+local splay_resize_active = false
+local splay_resize_window = nil
+local splay_resize_direction = nil
+local splay_resize_stable = true
+local splay_resize_timer = nil
+
+-- Minimum dimension for a tile to be considered stable.
+local SPLAY_MIN_TILE_SIZE = 200
+
+-- Temporary resize border.
+local SPLAY_RESIZE_BORDER_SIZE = 5
+
+-- Neon colors.
+local SPLAY_STABLE_COLOR = "rgb(00FFFF)"
+local SPLAY_UNSTABLE_COLOR = "rgb(FF0055)"
+
+
 -------------------------------
 ---- ENVIRONMENT VARIABLES ----
 -------------------------------
@@ -513,6 +534,245 @@ end
 
 
 --------------------------------
+---- SPLAY RESIZE FEEDBACK ----
+--------------------------------
+
+local function splay_set_resize_border(window, stable)
+
+    if not window then
+        return
+    end
+
+    local color
+
+    if stable then
+        color = SPLAY_STABLE_COLOR
+    else
+        color = SPLAY_UNSTABLE_COLOR
+    end
+
+
+    --------------------------------
+    -- Border size
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            prop = "border_size",
+            value = tostring(SPLAY_RESIZE_BORDER_SIZE),
+            window = window,
+        })
+    )
+
+
+    --------------------------------
+    -- Border color
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            prop = "border_color",
+            value = color,
+            window = window,
+        })
+    )
+end
+
+
+--------------------------------
+---- RESIZE STATE UPDATE -------
+--------------------------------
+
+local function splay_update_resize_state()
+
+    if not splay_resize_active then
+        return
+    end
+
+    local window = splay_resize_window
+
+    if not window then
+        return
+    end
+
+
+    local size = window.size
+
+    if not size then
+        return
+    end
+
+
+    --------------------------------
+    -- Determine manipulated dimension
+    --------------------------------
+
+    local dimension
+
+    if splay_resize_direction == "l"
+        or splay_resize_direction == "r" then
+
+        dimension = size.x
+
+    else
+
+        dimension = size.y
+
+    end
+
+
+    --------------------------------
+    -- Determine stability
+    --------------------------------
+
+    local stable = dimension >= SPLAY_MIN_TILE_SIZE
+
+
+    --------------------------------
+    -- Only update when state changes
+    --------------------------------
+
+    if stable ~= splay_resize_stable then
+
+        splay_resize_stable = stable
+
+        splay_set_resize_border(
+            window,
+            stable
+        )
+    end
+end
+
+
+--------------------------------
+---- START RESIZE FEEDBACK ----
+--------------------------------
+
+local function splay_start_resize_feedback(
+    window,
+    direction
+)
+
+    if not window then
+        return
+    end
+
+
+    splay_resize_active = true
+    splay_resize_window = window
+    splay_resize_direction = direction
+
+    splay_resize_stable = true
+
+
+    --------------------------------
+    -- Initial state
+    --------------------------------
+
+    splay_set_resize_border(
+        window,
+        true
+    )
+
+
+    --------------------------------
+    -- Monitor tile continuously
+    --------------------------------
+
+    splay_resize_timer = hl.timer(
+        function()
+
+            splay_update_resize_state()
+
+        end,
+        {
+            timeout = 16,
+            type = "repeat",
+        }
+    )
+end
+
+
+--------------------------------
+---- END RESIZE FEEDBACK -------
+--------------------------------
+
+local function splay_end_resize_feedback()
+
+    if not splay_resize_active then
+        return false
+    end
+
+
+    local window = splay_resize_window
+    local stable = splay_resize_stable
+
+
+    --------------------------------
+    -- Stop monitoring
+    --------------------------------
+
+    if splay_resize_timer then
+
+        splay_resize_timer:set_enabled(false)
+
+        splay_resize_timer = nil
+
+    end
+
+
+    --------------------------------
+    -- Clear resize state
+    --------------------------------
+
+    splay_resize_active = false
+    splay_resize_window = nil
+    splay_resize_direction = nil
+    splay_resize_stable = true
+
+
+    --------------------------------
+    -- Unstable tile
+    --------------------------------
+
+    if not stable then
+
+        if window then
+
+            hl.dispatch(
+                hl.dsp.window.close({
+                    window = window,
+                })
+            )
+
+        end
+
+        return true
+    end
+
+
+    --------------------------------
+    -- Stable tile
+    --------------------------------
+
+    if window then
+
+        hl.dispatch(
+            hl.dsp.window.set_prop({
+                prop = "border_size",
+                value = "0",
+                window = window,
+            })
+        )
+
+    end
+
+
+    return false
+end
+
+
+--------------------------------
 ---- SPLAY CLICK ---------------
 --------------------------------
 
@@ -579,16 +839,6 @@ local function splay_click()
     --------------------------------
     -- Configure ratio for direction
     --------------------------------
-    --
-    -- Dwindle interprets the split ratio
-    -- relative to the side selected by
-    -- preselect.
-    --
-    -- For right/bottom, 1.9 produces the
-    -- desired small new tile.
-    --
-    -- For left/top, the interpretation is
-    -- inverted, so 0.1 is required.
 
     if direction == "r" or direction == "d" then
 
@@ -649,12 +899,35 @@ hl.bind(
 
             splay_new_tile = false
 
+
+            --------------------------------
+            -- Capture new tile
+            --------------------------------
+
+            local window = hl.get_active_window()
+
+
+            --------------------------------
+            -- Start native resize
+            --------------------------------
+
             hl.dispatch(
                 hl.dsp.window.resize()
             )
 
+
+            --------------------------------
+            -- Start Splay resize feedback
+            --------------------------------
+
+            splay_start_resize_feedback(
+                window,
+                splay_spawn_direction
+            )
+
             return
         end
+
 
         splay_click()
 
@@ -672,6 +945,14 @@ hl.bind(
 hl.bind(
     "mouse:272",
     function()
+
+        if splay_resize_active then
+
+            splay_end_resize_feedback()
+
+            return
+        end
+
 
         splay_new_tile = false
 
