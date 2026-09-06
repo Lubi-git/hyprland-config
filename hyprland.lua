@@ -27,116 +27,6 @@ local launcher    = terminal .. " -e fsel"
 
 
 --------------------------------
----- SPLAY STATE --------------
---------------------------------
-
-local splay_last_direction = nil
-local splay_last_time      = 0
-
-local splay_double_click_time = 250
-local splay_edge_size         = 10
-
-
---------------------------------
----- SPLAY FUNCTIONS ----------
---------------------------------
-
-local function splay_get_edge()
-    local cursor = hl.get_cursor_pos()
-    local windows = hl.get_windows()
-
-    for _, window in ipairs(windows) do
-        if window.workspace ~= nil
-            and window.at ~= nil
-            and window.size ~= nil then
-
-            local x = window.at.x
-            local y = window.at.y
-
-            local w = window.size.x
-            local h = window.size.y
-
-            local left   = x
-            local right  = x + w
-            local top    = y
-            local bottom = y + h
-
-            local cx = cursor.x
-            local cy = cursor.y
-
-            local on_vertical_edge =
-                cy >= top and cy <= bottom
-                and (
-                    math.abs(cx - left) <= splay_edge_size
-                    or math.abs(cx - right) <= splay_edge_size
-                )
-
-            local on_horizontal_edge =
-                cx >= left and cx <= right
-                and (
-                    math.abs(cy - top) <= splay_edge_size
-                    or math.abs(cy - bottom) <= splay_edge_size
-                )
-
-            if on_vertical_edge then
-                if math.abs(cx - left) <= splay_edge_size then
-                    return "l"
-                else
-                    return "r"
-                end
-            end
-
-            if on_horizontal_edge then
-                if math.abs(cy - top) <= splay_edge_size then
-                    return "u"
-                else
-                    return "d"
-                end
-            end
-        end
-    end
-
-    return nil
-end
-
-
-local function splay_click()
-    local direction = splay_get_edge()
-
-    if direction == nil then
-        splay_last_direction = nil
-        return
-    end
-
-    local now = os.clock() * 1000
-
-    if
-        splay_last_direction == direction
-        and now - splay_last_time <= splay_double_click_time
-    then
-        -- One-shot Dwindle split direction.
-        hl.dispatch(
-            hl.dsp.layout("preselect " .. direction)
-        )
-
-        -- A Splay tile is a real terminal window.
-        hl.dispatch(
-            hl.dsp.exec_cmd(terminal)
-        )
-
-        splay_last_direction = nil
-        splay_last_time = 0
-
-        return
-    end
-
-    -- First click.
-    splay_last_direction = direction
-    splay_last_time = now
-end
-
-
---------------------------------
 ---- ENVIRONMENT VARIABLES ----
 --------------------------------
 
@@ -151,25 +41,17 @@ hl.env("HYPRCURSOR_SIZE", "24")
 hl.config({
     general = {
         -- Splay spatial unit.
-        --
-        -- Adjacent tiles:
-        --
-        -- TILE A | 10 px | 10 px | TILE B
-        --
-        -- Visible gap = 20 px.
-        -- Each tile owns 10 px of the gap.
-
         gaps_in  = 10,
         gaps_out = 20,
 
+        -- No compositor border.
         border_size = 0,
 
         -- Native Hyprland resize.
-        -- This also works on gaps.
+        -- This includes borders AND gaps.
         resize_on_border = true,
 
-        -- The complete 10 px Splay edge domain is
-        -- available for border/gap manipulation.
+        -- Extend the native resize grab area.
         extend_border_grab_area = 10,
 
         allow_tearing = false,
@@ -195,21 +77,6 @@ hl.config({
 
     animations = {
         enabled = true,
-    },
-})
-
-
---------------------
----- BIND OPTIONS --
---------------------
-
-hl.config({
-    binds = {
-        -- Distinguish click from drag.
-        --
-        -- < 10 px  -> click
-        -- >= 10 px  -> drag
-        drag_threshold = 10,
     },
 })
 
@@ -399,6 +266,7 @@ hl.animation({
 
 hl.config({
     dwindle = {
+        -- Preserve the spatial subdivision tree.
         preserve_split = true,
     },
 })
@@ -427,6 +295,22 @@ hl.config({
 })
 
 
+---------------------
+---- BINDS ----------
+---------------------
+
+hl.config({
+    binds = {
+        -- Distinguish a click from a drag.
+        drag_threshold = 10,
+
+        -- Allow mouse events to continue when a mouse
+        -- binding has been triggered.
+        pass_mouse_when_bound = true,
+    },
+})
+
+
 ----------------
 ---- MISC ------
 ----------------
@@ -450,21 +334,25 @@ local mainMod = "SUPER"
 ---- APPLICATIONS --------
 ---------------------------
 
+-- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
+-- Open file manager.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
+-- Open application launcher.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
 )
 
+-- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -475,6 +363,7 @@ hl.bind(
 ---- WINDOW BEHAVIOUR ----
 ---------------------------
 
+-- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -482,6 +371,7 @@ hl.bind(
     })
 )
 
+-- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -544,28 +434,9 @@ for i = 1, 10 do
 end
 
 
---------------------------------
----- MOUSE ---------------------
---------------------------------
-
--- Splay double-click detection.
---
--- IMPORTANT:
--- This is only the click detector.
--- It does NOT perform resizing.
---
--- Native Hyprland border/gap resizing remains responsible
--- for drag operations.
-
-hl.bind(
-    "mouse:272",
-    splay_click,
-    {
-        mouse = true,
-        click = true,
-    }
-)
-
+---------------------------
+---- MOUSE ----------------
+---------------------------
 
 -- SUPER + left mouse:
 -- move the current tile/window.
@@ -576,7 +447,6 @@ hl.bind(
         mouse = true,
     }
 )
-
 
 -- SUPER + right mouse:
 -- resize the current tile/window.
@@ -590,9 +460,168 @@ hl.bind(
 
 
 --------------------------------
+---- SPLAY EDGE INTERACTION ----
+--------------------------------
+
+local splay_last_direction = nil
+local splay_last_time = 0
+
+-- Maximum interval between the two clicks.
+local splay_double_click_time = 250
+
+-- Each tile owns 10 px of the shared gap.
+local splay_edge_size = 10
+
+
+--------------------------------
+---- EDGE DETECTION -----------
+--------------------------------
+
+local function splay_get_edge()
+    local cursor = hl.get_cursor_pos()
+    local windows = hl.get_windows()
+
+    for _, window in ipairs(windows) do
+
+        if window.workspace and window.workspace.id > 0 then
+
+            local x = window.at.x
+            local y = window.at.y
+
+            local w = window.size.x
+            local h = window.size.y
+
+            local right  = x + w
+            local bottom = y + h
+
+
+            -- LEFT
+            --
+            -- Includes the 10 px belonging to this
+            -- tile on the shared gap.
+            if cursor.x >= x - splay_edge_size
+                and cursor.x <= x + splay_edge_size
+                and cursor.y >= y
+                and cursor.y <= bottom
+            then
+                return "l"
+            end
+
+
+            -- RIGHT
+            if cursor.x >= right - splay_edge_size
+                and cursor.x <= right + splay_edge_size
+                and cursor.y >= y
+                and cursor.y <= bottom
+            then
+                return "r"
+            end
+
+
+            -- TOP
+            if cursor.y >= y - splay_edge_size
+                and cursor.y <= y + splay_edge_size
+                and cursor.x >= x
+                and cursor.x <= right
+            then
+                return "u"
+            end
+
+
+            -- BOTTOM
+            if cursor.y >= bottom - splay_edge_size
+                and cursor.y <= bottom + splay_edge_size
+                and cursor.x >= x
+                and cursor.x <= right
+            then
+                return "d"
+            end
+        end
+    end
+
+    return nil
+end
+
+
+--------------------------------
+---- SPLAY CLICK HANDLER -------
+--------------------------------
+
+local function splay_click()
+
+    local direction = splay_get_edge()
+
+
+    -- Click outside a tile edge.
+    if direction == nil then
+        splay_last_direction = nil
+        return
+    end
+
+
+    local now = os.clock() * 1000
+
+
+    -- Second click on the same edge.
+    if splay_last_direction == direction
+        and now - splay_last_time <= splay_double_click_time
+    then
+
+        -- Reset double-click state.
+        splay_last_direction = nil
+        splay_last_time = 0
+
+
+        -- Tell Dwindle where the next tiled window
+        -- should be inserted.
+        hl.dispatch(
+            hl.dsp.layout("preselect " .. direction)
+        )
+
+
+        -- A Splay tile is a real terminal window.
+        hl.dispatch(
+            hl.dsp.exec_cmd(terminal)
+        )
+
+        return
+    end
+
+
+    -- First click.
+    splay_last_direction = direction
+    splay_last_time = now
+end
+
+
+--------------------------------
+---- SPLAY LMB BINDING --------
+--------------------------------
+
+-- Splay observes LMB clicks.
+--
+-- The click flag means this is resolved as a click
+-- rather than a drag when the pointer remains within
+-- drag_threshold.
+--
+-- pass_mouse_when_bound is enabled globally above
+-- so the event should remain available to Hyprland's
+-- native mouse handling.
+hl.bind(
+    "mouse:272",
+    splay_click,
+    {
+        mouse = true,
+        click = true,
+    }
+)
+
+
+--------------------------------
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
+-- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -604,6 +633,7 @@ hl.window_rule({
 })
 
 
+-- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -620,6 +650,7 @@ hl.window_rule({
 })
 
 
+-- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
