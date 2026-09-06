@@ -275,17 +275,12 @@ hl.config({
     dwindle = {
         preserve_split = true,
 
-        -- El split favorece al tile que ya existía.
+        -- El ratio se selecciona dinámicamente según
+        -- la dirección del nuevo tile.
         split_bias = 0,
 
-        -- Invertimos el ratio.
-        --
-        -- 1.0 = 50/50
-        -- 0.1 = extremo contrario
-        -- 1.9 = extremo inverso
-        --
-        -- La intención es que el nuevo tile nazca
-        -- ocupando la menor superficie posible.
+        -- Valor inicial por defecto.
+        -- Se modifica justo antes de crear cada tile.
         default_split_ratio = 1.9,
     },
 })
@@ -579,6 +574,39 @@ local function splay_click()
 
     splay_spawn_pending = true
     splay_spawn_direction = direction
+
+
+    --------------------------------
+    -- Configure ratio for direction
+    --------------------------------
+    --
+    -- Dwindle interprets the split ratio
+    -- relative to the side selected by
+    -- preselect.
+    --
+    -- For right/bottom, 1.9 produces the
+    -- desired small new tile.
+    --
+    -- For left/top, the interpretation is
+    -- inverted, so 0.1 is required.
+
+    if direction == "r" or direction == "d" then
+
+        hl.config({
+            dwindle = {
+                default_split_ratio = 1.9,
+            },
+        })
+
+    else
+
+        hl.config({
+            dwindle = {
+                default_split_ratio = 0.1,
+            },
+        })
+
+    end
 
 
     --------------------------------
