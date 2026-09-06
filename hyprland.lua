@@ -45,14 +45,13 @@ hl.config({
         gaps_out = 20,
 
         -- No compositor border.
-        -- The 20 px visual separation is produced
-        -- by the 10 px gap owned by each adjacent tile.
         border_size = 0,
 
         -- Hyprland handles native tile resizing.
         resize_on_border = true,
 
-        -- Extend the native resize grab area.
+        -- The 10 px domain of the adjacent tile
+        -- is also part of the native resize area.
         extend_border_grab_area = 10,
 
         allow_tearing = false,
@@ -314,12 +313,11 @@ hl.config({
 
 hl.config({
     binds = {
-        -- Determines when a mouse interaction becomes a drag
-        -- instead of a click.
+        -- Separates clicks from drags.
         drag_threshold = 10,
 
-        -- Allows the native mouse behaviour to coexist with
-        -- Splay's mouse binding.
+        -- Allows Splay's mouse binding to coexist
+        -- with Hyprland's native mouse handling.
         pass_mouse_when_bound = true,
     },
 })
@@ -484,8 +482,10 @@ local function splay_get_edge()
 
     for _, window in ipairs(windows) do
         if window.workspace and window.workspace.id > 0 then
+
             local x = window.at.x
             local y = window.at.y
+
             local w = window.size.x
             local h = window.size.y
 
@@ -541,15 +541,26 @@ end
 
 
 --------------------------------
----- SPLAY CLICK ---------------
+---- SPLAY PRESS ---------------
 --------------------------------
+--
+-- This is intentionally a PRESS,
+-- not a CLICK.
+--
+-- First press:
+--     stores the possible gesture.
+--
+-- Second press:
+--     immediately creates the new tile
+--     while the mouse button is still held.
+--
 
-local function splay_click()
+local function splay_press()
     local direction = splay_get_edge()
 
-    -- Click was not on a manipulable tile edge.
     if direction == nil then
         splay_last_direction = nil
+        splay_last_time = 0
         return
     end
 
@@ -558,19 +569,20 @@ local function splay_click()
 
 
     --------------------------------
-    -- SECOND CLICK
+    -- SECOND PRESS
     --------------------------------
 
     if splay_last_direction == direction
         and now - splay_last_time <= splay_double_click_time
     then
-        -- Consume the double-click state.
+
+        -- Clear the pending first click.
         splay_last_direction = nil
         splay_last_time = 0
 
 
         --------------------------------
-        -- PRESELECT SPLIT DIRECTION
+        -- SELECT SPLIT DIRECTION
         --------------------------------
 
         hl.dispatch(
@@ -588,12 +600,14 @@ local function splay_click()
 
 
         --------------------------------
-        -- ENTER RESIZE
+        -- ENTER RESIZE IMMEDIATELY
         --------------------------------
         --
-        -- The newly created Ghostty should become
-        -- the active tiled window. Hyprland's native
-        -- resize dispatcher is then invoked on it.
+        -- The second mouse button is STILL HELD.
+        --
+        -- The new Ghostty becomes the active tile,
+        -- and Hyprland's native resize mechanism
+        -- takes over the current mouse movement.
         --
 
         hl.dispatch(
@@ -605,7 +619,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- FIRST CLICK
+    -- FIRST PRESS
     --------------------------------
 
     splay_last_direction = direction
@@ -614,15 +628,47 @@ end
 
 
 --------------------------------
----- SPLAY MOUSE BIND ----------
+---- SPLAY RELEASE -------------
+--------------------------------
+--
+-- The release does NOT create anything.
+--
+-- Its only responsibility is to terminate
+-- the pending Splay click state.
+--
+-- Hyprland itself terminates the native
+-- resize operation when the mouse button
+-- is released.
+--
+
+local function splay_release()
+    splay_last_direction = nil
+    splay_last_time = 0
+end
+
+
+--------------------------------
+---- SPLAY MOUSE BINDS ---------
 --------------------------------
 
+-- PRESS:
+-- Used for the actual "click and a half" gesture.
 hl.bind(
     "mouse:272",
-    splay_click,
+    splay_press,
     {
         mouse = true,
-        click = true,
+    }
+)
+
+-- RELEASE:
+-- Only clears Splay's gesture state.
+hl.bind(
+    "mouse:272",
+    splay_release,
+    {
+        mouse = true,
+        release = true,
     }
 )
 
