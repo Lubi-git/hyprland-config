@@ -26,9 +26,9 @@ local fileManager = terminal .. " -e yazi"
 local launcher    = terminal .. " -e fsel"
 
 
---------------------------------
+-------------------------------
 ---- ENVIRONMENT VARIABLES ----
---------------------------------
+-------------------------------
 
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
@@ -45,10 +45,11 @@ hl.config({
         gaps_out = 20,
 
         -- No compositor border.
+        -- The 20 px visual separation is produced
+        -- by the 10 px gap owned by each adjacent tile.
         border_size = 0,
 
-        -- Native Hyprland resize.
-        -- This includes borders AND gaps.
+        -- Hyprland handles native tile resizing.
         resize_on_border = true,
 
         -- Extend the native resize grab area.
@@ -295,22 +296,6 @@ hl.config({
 })
 
 
----------------------
----- BINDS ----------
----------------------
-
-hl.config({
-    binds = {
-        -- Distinguish a click from a drag.
-        drag_threshold = 10,
-
-        -- Allow mouse events to continue when a mouse
-        -- binding has been triggered.
-        pass_mouse_when_bound = true,
-    },
-})
-
-
 ----------------
 ---- MISC ------
 ----------------
@@ -319,6 +304,23 @@ hl.config({
     misc = {
         force_default_wallpaper = -1,
         disable_hyprland_logo = true,
+    },
+})
+
+
+----------------
+---- BINDS -----
+----------------
+
+hl.config({
+    binds = {
+        -- Determines when a mouse interaction becomes a drag
+        -- instead of a click.
+        drag_threshold = 10,
+
+        -- Allows the native mouse behaviour to coexist with
+        -- Splay's mouse binding.
+        pass_mouse_when_bound = true,
     },
 })
 
@@ -341,12 +343,14 @@ hl.bind(
 )
 
 -- Open file manager.
+-- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
 -- Open application launcher.
+-- fsel is currently a placeholder launcher for SplayDE.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
@@ -460,21 +464,18 @@ hl.bind(
 
 
 --------------------------------
----- SPLAY EDGE INTERACTION ----
+---- SPLAY INTERACTION ---------
 --------------------------------
 
 local splay_last_direction = nil
 local splay_last_time = 0
 
--- Maximum interval between the two clicks.
 local splay_double_click_time = 250
-
--- Each tile owns 10 px of the shared gap.
 local splay_edge_size = 10
 
 
 --------------------------------
----- EDGE DETECTION -----------
+---- EDGE DETECTION ------------
 --------------------------------
 
 local function splay_get_edge()
@@ -482,12 +483,9 @@ local function splay_get_edge()
     local windows = hl.get_windows()
 
     for _, window in ipairs(windows) do
-
         if window.workspace and window.workspace.id > 0 then
-
             local x = window.at.x
             local y = window.at.y
-
             local w = window.size.x
             local h = window.size.y
 
@@ -495,10 +493,9 @@ local function splay_get_edge()
             local bottom = y + h
 
 
-            -- LEFT
+            -- Left edge.
             --
-            -- Includes the 10 px belonging to this
-            -- tile on the shared gap.
+            -- The tile owns 10 px of the adjacent gap.
             if cursor.x >= x - splay_edge_size
                 and cursor.x <= x + splay_edge_size
                 and cursor.y >= y
@@ -508,7 +505,7 @@ local function splay_get_edge()
             end
 
 
-            -- RIGHT
+            -- Right edge.
             if cursor.x >= right - splay_edge_size
                 and cursor.x <= right + splay_edge_size
                 and cursor.y >= y
@@ -518,7 +515,7 @@ local function splay_get_edge()
             end
 
 
-            -- TOP
+            -- Top edge.
             if cursor.y >= y - splay_edge_size
                 and cursor.y <= y + splay_edge_size
                 and cursor.x >= x
@@ -528,7 +525,7 @@ local function splay_get_edge()
             end
 
 
-            -- BOTTOM
+            -- Bottom edge.
             if cursor.y >= bottom - splay_edge_size
                 and cursor.y <= bottom + splay_edge_size
                 and cursor.x >= x
@@ -544,15 +541,13 @@ end
 
 
 --------------------------------
----- SPLAY CLICK HANDLER -------
+---- SPLAY CLICK ---------------
 --------------------------------
 
 local function splay_click()
-
     local direction = splay_get_edge()
 
-
-    -- Click outside a tile edge.
+    -- Click was not on a manipulable tile edge.
     if direction == nil then
         splay_last_direction = nil
         return
@@ -562,51 +557,66 @@ local function splay_click()
     local now = os.clock() * 1000
 
 
-    -- Second click on the same edge.
+    --------------------------------
+    -- SECOND CLICK
+    --------------------------------
+
     if splay_last_direction == direction
         and now - splay_last_time <= splay_double_click_time
     then
-
-        -- Reset double-click state.
+        -- Consume the double-click state.
         splay_last_direction = nil
         splay_last_time = 0
 
 
-        -- Tell Dwindle where the next tiled window
-        -- should be inserted.
+        --------------------------------
+        -- PRESELECT SPLIT DIRECTION
+        --------------------------------
+
         hl.dispatch(
             hl.dsp.layout("preselect " .. direction)
         )
 
 
-        -- A Splay tile is a real terminal window.
+        --------------------------------
+        -- CREATE NEW TILE
+        --------------------------------
+
         hl.dispatch(
             hl.dsp.exec_cmd(terminal)
+        )
+
+
+        --------------------------------
+        -- ENTER RESIZE
+        --------------------------------
+        --
+        -- The newly created Ghostty should become
+        -- the active tiled window. Hyprland's native
+        -- resize dispatcher is then invoked on it.
+        --
+
+        hl.dispatch(
+            hl.dsp.window.resize()
         )
 
         return
     end
 
 
-    -- First click.
+    --------------------------------
+    -- FIRST CLICK
+    --------------------------------
+
     splay_last_direction = direction
     splay_last_time = now
 end
 
 
 --------------------------------
----- SPLAY LMB BINDING --------
+---- SPLAY MOUSE BIND ----------
 --------------------------------
 
--- Splay observes LMB clicks.
---
--- The click flag means this is resolved as a click
--- rather than a drag when the pointer remains within
--- drag_threshold.
---
--- pass_mouse_when_bound is enabled globally above
--- so the event should remain available to Hyprland's
--- native mouse handling.
 hl.bind(
     "mouse:272",
     splay_click,
