@@ -32,7 +32,7 @@ local launcher    = terminal .. " -e fsel"
 
 local splay_click_pending = false
 local splay_click_direction = nil
-local splay_resizing = false
+local splay_new_tile = false
 
 
 -------------------------------
@@ -53,10 +53,9 @@ hl.config({
         gaps_in  = 10,
         gaps_out = 20,
 
-        -- No visible Hyprland border.
         border_size = 0,
 
-        -- Native Hyprland border/gap resizing.
+        -- Native Hyprland resizing.
         resize_on_border = true,
         extend_border_grab_area = 10,
 
@@ -193,7 +192,7 @@ hl.animation({
 hl.animation({
     leaf = "fade",
     enabled = true,
-    speed = 3.03,
+    speed = 3,
     bezier = "quick",
 })
 
@@ -299,8 +298,11 @@ hl.config({
     },
 
     binds = {
-        -- Keep normal mouse movement responsive.
         drag_threshold = 10,
+
+        -- Allow normal mouse interaction to continue
+        -- when Splay has a mouse bind active.
+        pass_mouse_when_bound = true,
     },
 })
 
@@ -328,26 +330,21 @@ local mainMod = "SUPER"
 ---- APPLICATIONS --------
 ---------------------------
 
--- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
--- Open file manager.
--- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
--- Open application launcher.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
 )
 
--- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -358,7 +355,6 @@ hl.bind(
 ---- WINDOW BEHAVIOUR ----
 ---------------------------
 
--- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -366,7 +362,6 @@ hl.bind(
     })
 )
 
--- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -449,29 +444,43 @@ local function get_splay_edge()
             local cx = cursor.x
             local cy = cursor.y
 
-            -- Each tile owns 10 px of the shared gap.
-            --
-            -- Left edge
-            if cx >= x - 10 and cx <= x + 10
-                and cy >= y and cy <= y + h then
+
+            -- Left edge.
+            if cx >= x - 10
+                and cx <= x + 10
+                and cy >= y
+                and cy <= y + h then
+
                 return "l"
             end
 
-            -- Right edge
-            if cx >= x + w - 10 and cx <= x + w + 10
-                and cy >= y and cy <= y + h then
+
+            -- Right edge.
+            if cx >= x + w - 10
+                and cx <= x + w + 10
+                and cy >= y
+                and cy <= y + h then
+
                 return "r"
             end
 
-            -- Top edge
-            if cy >= y - 10 and cy <= y + 10
-                and cx >= x and cx <= x + w then
+
+            -- Top edge.
+            if cy >= y - 10
+                and cy <= y + 10
+                and cx >= x
+                and cx <= x + w then
+
                 return "u"
             end
 
-            -- Bottom edge
-            if cy >= y + h - 10 and cy <= y + h + 10
-                and cx >= x and cx <= x + w then
+
+            -- Bottom edge.
+            if cy >= y + h - 10
+                and cy <= y + h + 10
+                and cx >= x
+                and cx <= x + w then
+
                 return "d"
             end
         end
@@ -482,24 +491,32 @@ end
 
 
 --------------------------------
----- SPLAY DOUBLE CLICK --------
+---- SPLAY CLICK ---------------
 --------------------------------
 
 local function splay_click()
+
     local direction = get_splay_edge()
 
     if not direction then
         return
     end
 
-    -- First click.
+
+    --------------------------------
+    -- FIRST CLICK
+    --------------------------------
+
     if not splay_click_pending then
+
         splay_click_pending = true
         splay_click_direction = direction
 
         hl.timer(function()
+
             splay_click_pending = false
             splay_click_direction = nil
+
         end, {
             timeout = 250,
             type = "oneshot",
@@ -508,50 +525,82 @@ local function splay_click()
         return
     end
 
-    -- Second click must be on the same edge.
+
+    --------------------------------
+    -- DIFFERENT EDGE
+    --------------------------------
+
     if splay_click_direction ~= direction then
+
         splay_click_direction = direction
+
         return
     end
 
-    -- Consume the double-click state.
+
+    --------------------------------
+    -- SECOND CLICK
+    --------------------------------
+
     splay_click_pending = false
     splay_click_direction = nil
 
-    -- Tell Dwindle where the new tile must be inserted.
+    splay_new_tile = true
+
+
+    --------------------------------
+    -- PRESELECT
+    --------------------------------
+
     hl.dispatch(
-        hl.dsp.layout("preselect " .. direction)
+        hl.dsp.layout(
+            "preselect " .. direction
+        )
     )
 
-    -- Create the actual tile.
-    -- There are no empty/placeholder tiles in Splay.
+
+    --------------------------------
+    -- CREATE TILE
+    --------------------------------
+
     hl.dispatch(
         hl.dsp.exec_cmd(terminal)
     )
 
-    -- The new window should enter native Hyprland resize.
-    splay_resizing = true
 end
 
 
 --------------------------------
----- SPLAY MOUSE PRESS ---------
+---- SPLAY MOUSE BIND ----------
 --------------------------------
 
--- Splay listens to the same left mouse button used by
--- native Hyprland interaction.
+-- LMB is used for the Splay gesture.
 --
--- pass_mouse_when_bound allows the normal compositor
--- mouse interaction to remain available.
-hl.config({
-    binds = {
-        pass_mouse_when_bound = true,
-    },
-})
+-- The important difference from the previous version:
+-- this bind does NOT attempt to start resize through
+-- window.open.
+--
+-- The resize dispatcher is invoked by the mouse bind
+-- itself after the new tile has been created.
 
 hl.bind(
     "mouse:272",
-    splay_click,
+    function()
+
+        if splay_new_tile then
+
+            splay_new_tile = false
+
+            hl.dispatch(
+                hl.dsp.window.resize()
+            )
+
+            return
+        end
+
+        splay_click()
+
+    end,
     {
         mouse = true,
     }
@@ -559,14 +608,15 @@ hl.bind(
 
 
 --------------------------------
----- SPLAY MOUSE RELEASE -------
+---- MOUSE RELEASE -------------
 --------------------------------
 
--- End Splay's temporary resize state when LMB is released.
 hl.bind(
     "mouse:272",
     function()
-        splay_resizing = false
+
+        splay_new_tile = false
+
     end,
     {
         mouse = true,
@@ -576,42 +626,9 @@ hl.bind(
 
 
 --------------------------------
----- NEW WINDOW RESIZE ---------
---------------------------------
-
--- Once the terminal has actually been created,
--- start Hyprland's native resize dispatcher.
-hl.on("window.open", function(window)
-
-    if not splay_resizing then
-        return
-    end
-
-    -- Hyprland 0.56.x may need the dispatcher to be
-    -- delayed until the new window has entered the layout.
-    hl.timer(function()
-
-        if not splay_resizing then
-            return
-        end
-
-        hl.dispatch(
-            hl.dsp.window.resize()
-        )
-
-    end, {
-        timeout = 1,
-        type = "oneshot",
-    })
-
-end)
-
-
---------------------------------
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
--- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -623,7 +640,6 @@ hl.window_rule({
 })
 
 
--- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -640,7 +656,6 @@ hl.window_rule({
 })
 
 
--- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
