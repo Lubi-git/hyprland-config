@@ -2,7 +2,7 @@
 -- Mouse-oriented tiling environment
 --
 -- Hyprland is the compositor and tiling/layout backend.
--- Splay is the spatial interaction layer.
+-- Splay provides the spatial interaction layer.
 
 
 ------------------
@@ -27,6 +27,121 @@ local launcher    = terminal .. " -e fsel"
 
 
 --------------------------------
+---- SPLAY STATE --------------
+--------------------------------
+
+local splay_last_direction = nil
+local splay_last_time      = 0
+
+local splay_double_click_time = 250
+local splay_edge_size         = 10
+local splay_min_tile_size     = 20
+
+
+--------------------------------
+---- SPLAY FUNCTIONS ----------
+--------------------------------
+
+local function splay_get_edge()
+    local cursor = hl.get_cursor_pos()
+    local windows = hl.get_windows()
+
+    for _, window in ipairs(windows) do
+        if window.workspace ~= nil
+            and window.at ~= nil
+            and window.size ~= nil then
+
+            local x = window.at.x
+            local y = window.at.y
+
+            local w = window.size.x
+            local h = window.size.y
+
+            local left   = x
+            local right  = x + w
+            local top    = y
+            local bottom = y + h
+
+            local cx = cursor.x
+            local cy = cursor.y
+
+            local on_vertical_edge =
+                cy >= top and cy <= bottom
+                and (
+                    math.abs(cx - left) <= splay_edge_size
+                    or math.abs(cx - right) <= splay_edge_size
+                )
+
+            local on_horizontal_edge =
+                cx >= left and cx <= right
+                and (
+                    math.abs(cy - top) <= splay_edge_size
+                    or math.abs(cy - bottom) <= splay_edge_size
+                )
+
+            if on_vertical_edge then
+                if math.abs(cx - left) <= splay_edge_size then
+                    return "l"
+                else
+                    return "r"
+                end
+            end
+
+            if on_horizontal_edge then
+                if math.abs(cy - top) <= splay_edge_size then
+                    return "u"
+                else
+                    return "d"
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+
+local function splay_click()
+    local direction = splay_get_edge()
+
+    if direction == nil then
+        splay_last_direction = nil
+        return
+    end
+
+    local now = os.clock() * 1000
+
+    if
+        splay_last_direction == direction
+        and now - splay_last_time <= splay_double_click_time
+    then
+        -- The second click completes the Splay gesture.
+        --
+        -- preselect is a one-shot Dwindle instruction:
+        -- the next tiled window will be created in this direction.
+
+        hl.dispatch(
+            hl.dsp.layout("preselect " .. direction)
+        )
+
+        -- Creating a Splay tile means opening the default terminal.
+        hl.dispatch(
+            hl.dsp.exec_cmd(terminal)
+        )
+
+        splay_last_direction = nil
+        splay_last_time = 0
+
+        return
+    end
+
+    -- First click: remember the edge and wait for a possible second click.
+    splay_last_direction = direction
+    splay_last_time = now
+end
+
+
+--------------------------------
 ---- ENVIRONMENT VARIABLES ----
 --------------------------------
 
@@ -40,16 +155,20 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 hl.config({
     general = {
-        -- 10 px inward from each tile.
-        -- Two adjacent tiles therefore create
-        -- a 20 px visual gap.
-        gaps_in = 10,
+        -- Splay spatial unit.
+        --
+        -- Each adjacent tile owns 10 px of the gap:
+        --
+        -- TILE A | 10 px | 10 px | TILE B
+        --
+        -- Therefore the visible separation is 20 px.
+        gaps_in  = 10,
         gaps_out = 20,
 
-        -- Splay does not use Hyprland window borders.
+        -- Splay uses the tile edge/gap rather than a Hyprland border.
         border_size = 0,
 
-        -- Native Hyprland border/gap resizing.
+        -- Keep native Hyprland border resizing.
         resize_on_border = true,
 
         allow_tearing = false,
@@ -305,249 +424,9 @@ hl.config({
 })
 
 
---------------------------------
----- SPLAY ---------------------
---------------------------------
-
-local splay = {
-    -- Adjacent tiles have a 20 px visual gap:
-    --
-    --       TILE A    20px    TILE B
-    --                  ↑
-    --              10px | 10px
-    --
-    -- Each tile therefore owns 10 px
-    -- of the shared spatial boundary.
-    edge = 10,
-
-    double_click_time = 250,
-
-    waiting_second_click = false,
-    first_direction = nil,
-}
-
-
----------------------------
----- SPLAY GEOMETRY -------
----------------------------
-
-local function get_splay_target()
-    local cursor = hl.get_cursor_pos()
-
-    if cursor == nil then
-        return nil
-    end
-
-    local windows = hl.get_windows()
-
-    if windows == nil then
-        return nil
-    end
-
-    local best_window = nil
-    local best_direction = nil
-    local best_distance = math.huge
-
-    for _, window in ipairs(windows) do
-        if
-            window ~= nil
-            and not window.floating
-            and window.at ~= nil
-            and window.size ~= nil
-        then
-            local left =
-                cursor.x - window.at.x
-
-            local right =
-                (window.at.x + window.size.x) - cursor.x
-
-            local top =
-                cursor.y - window.at.y
-
-            local bottom =
-                (window.at.y + window.size.y) - cursor.y
-
-
-            --------------------------------
-            -- Left edge
-            --------------------------------
-
-            if left >= 0 and left <= splay.edge then
-                if left < best_distance then
-                    best_window = window
-                    best_direction = "l"
-                    best_distance = left
-                end
-            end
-
-
-            --------------------------------
-            -- Right edge
-            --------------------------------
-
-            if right >= 0 and right <= splay.edge then
-                if right < best_distance then
-                    best_window = window
-                    best_direction = "r"
-                    best_distance = right
-                end
-            end
-
-
-            --------------------------------
-            -- Top edge
-            --------------------------------
-
-            if top >= 0 and top <= splay.edge then
-                if top < best_distance then
-                    best_window = window
-                    best_direction = "u"
-                    best_distance = top
-                end
-            end
-
-
-            --------------------------------
-            -- Bottom edge
-            --------------------------------
-
-            if bottom >= 0 and bottom <= splay.edge then
-                if bottom < best_distance then
-                    best_window = window
-                    best_direction = "d"
-                    best_distance = bottom
-                end
-            end
-        end
-    end
-
-
-    if best_window == nil then
-        return nil
-    end
-
-
-    return {
-        window = best_window,
-        direction = best_direction,
-    }
-end
-
-
----------------------------
----- SPLAY DOUBLE CLICK --
----------------------------
-
-local function splay_click()
-    local target = get_splay_target()
-
-    -- A click outside Splay's edge domain
-    -- has no Splay meaning.
-    if target == nil then
-        splay.waiting_second_click = false
-        splay.first_direction = nil
-        return
-    end
-
-
-    local direction = target.direction
-
-
-    --------------------------------
-    -- First click
-    --------------------------------
-
-    if not splay.waiting_second_click then
-        splay.waiting_second_click = true
-        splay.first_direction = direction
-
-        hl.timer(
-            function()
-                splay.waiting_second_click = false
-                splay.first_direction = nil
-            end,
-            {
-                timeout = splay.double_click_time,
-                type = "oneshot",
-            }
-        )
-
-        return
-    end
-
-
-    --------------------------------
-    -- Second click
-    --------------------------------
-
-    if splay.first_direction ~= direction then
-        -- The user changed edge between clicks.
-        -- Start a new sequence from this edge.
-        splay.first_direction = direction
-        return
-    end
-
-
-    splay.waiting_second_click = false
-    splay.first_direction = nil
-
-
-    --------------------------------
-    -- Tell Dwindle the direction.
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.layout(
-            "preselect " .. direction
-        )
-    )
-
-
-    --------------------------------
-    -- Create the new Splay tile.
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.exec_cmd(terminal)
-    )
-end
-
-
----------------------------
----- SPLAY OBSERVER -------
----------------------------
-
--- IMPORTANT:
---
--- This is only the semantic layer for a click.
--- It does NOT implement movement or resizing.
---
--- Hyprland remains responsible for:
---
---   * border resizing
---   * gap resizing
---   * mouse movement
---   * window dragging
---   * tiled geometry
---
--- Splay only adds:
---
---   double click + edge → create tile
---
-hl.bind(
-    "mouse:272",
-    splay_click,
-    {
-        mouse = true,
-        click = true,
-        non_consuming = true,
-    }
-)
-
-
----------------------------
----- KEYBINDINGS ----------
----------------------------
+---------------------
+---- KEYBINDINGS ----
+---------------------
 
 local mainMod = "SUPER"
 
@@ -556,21 +435,27 @@ local mainMod = "SUPER"
 ---- APPLICATIONS --------
 ---------------------------
 
+-- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
+-- Open file manager.
+-- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
+-- Open application launcher.
+-- fsel is currently a placeholder launcher for SplayDE.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
 )
 
+-- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -581,6 +466,7 @@ hl.bind(
 ---- WINDOW BEHAVIOUR ----
 ---------------------------
 
+-- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -588,6 +474,7 @@ hl.bind(
     })
 )
 
+-- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -650,9 +537,23 @@ for i = 1, 10 do
 end
 
 
----------------------------
----- MOUSE ----------------
----------------------------
+--------------------------------
+---- NATIVE MOUSE BEHAVIOUR ----
+--------------------------------
+
+-- Keep Hyprland's native mouse interactions.
+--
+-- Splay only listens for LMB clicks in order to detect
+-- its double-click gesture. It does NOT implement resize.
+
+hl.bind(
+    "mouse:272",
+    splay_click,
+    {
+        mouse = true,
+        click = true,
+    }
+)
 
 -- SUPER + left mouse:
 -- move the current tile/window.
@@ -679,6 +580,7 @@ hl.bind(
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
+-- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -690,6 +592,7 @@ hl.window_rule({
 })
 
 
+-- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -706,6 +609,7 @@ hl.window_rule({
 })
 
 
+-- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
