@@ -35,7 +35,6 @@ local splay_last_time      = 0
 
 local splay_double_click_time = 250
 local splay_edge_size         = 10
-local splay_min_tile_size     = 20
 
 
 --------------------------------
@@ -115,16 +114,12 @@ local function splay_click()
         splay_last_direction == direction
         and now - splay_last_time <= splay_double_click_time
     then
-        -- The second click completes the Splay gesture.
-        --
-        -- preselect is a one-shot Dwindle instruction:
-        -- the next tiled window will be created in this direction.
-
+        -- One-shot Dwindle split direction.
         hl.dispatch(
             hl.dsp.layout("preselect " .. direction)
         )
 
-        -- Creating a Splay tile means opening the default terminal.
+        -- A Splay tile is a real terminal window.
         hl.dispatch(
             hl.dsp.exec_cmd(terminal)
         )
@@ -135,7 +130,7 @@ local function splay_click()
         return
     end
 
-    -- First click: remember the edge and wait for a possible second click.
+    -- First click.
     splay_last_direction = direction
     splay_last_time = now
 end
@@ -157,19 +152,25 @@ hl.config({
     general = {
         -- Splay spatial unit.
         --
-        -- Each adjacent tile owns 10 px of the gap:
+        -- Adjacent tiles:
         --
         -- TILE A | 10 px | 10 px | TILE B
         --
-        -- Therefore the visible separation is 20 px.
+        -- Visible gap = 20 px.
+        -- Each tile owns 10 px of the gap.
+
         gaps_in  = 10,
         gaps_out = 20,
 
-        -- Splay uses the tile edge/gap rather than a Hyprland border.
         border_size = 0,
 
-        -- Keep native Hyprland border resizing.
+        -- Native Hyprland resize.
+        -- This also works on gaps.
         resize_on_border = true,
+
+        -- The complete 10 px Splay edge domain is
+        -- available for border/gap manipulation.
+        extend_border_grab_area = 10,
 
         allow_tearing = false,
 
@@ -194,6 +195,21 @@ hl.config({
 
     animations = {
         enabled = true,
+    },
+})
+
+
+--------------------
+---- BIND OPTIONS --
+--------------------
+
+hl.config({
+    binds = {
+        -- Distinguish click from drag.
+        --
+        -- < 10 px  -> click
+        -- >= 10 px  -> drag
+        drag_threshold = 10,
     },
 })
 
@@ -383,7 +399,6 @@ hl.animation({
 
 hl.config({
     dwindle = {
-        -- Preserve the spatial subdivision tree.
         preserve_split = true,
     },
 })
@@ -435,27 +450,21 @@ local mainMod = "SUPER"
 ---- APPLICATIONS --------
 ---------------------------
 
--- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
--- Open file manager.
--- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
--- Open application launcher.
--- fsel is currently a placeholder launcher for SplayDE.
 hl.bind(
     mainMod .. " + R",
     hl.dsp.exec_cmd(launcher)
 )
 
--- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -466,7 +475,6 @@ hl.bind(
 ---- WINDOW BEHAVIOUR ----
 ---------------------------
 
--- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -474,7 +482,6 @@ hl.bind(
     })
 )
 
--- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -538,13 +545,17 @@ end
 
 
 --------------------------------
----- NATIVE MOUSE BEHAVIOUR ----
+---- MOUSE ---------------------
 --------------------------------
 
--- Keep Hyprland's native mouse interactions.
+-- Splay double-click detection.
 --
--- Splay only listens for LMB clicks in order to detect
--- its double-click gesture. It does NOT implement resize.
+-- IMPORTANT:
+-- This is only the click detector.
+-- It does NOT perform resizing.
+--
+-- Native Hyprland border/gap resizing remains responsible
+-- for drag operations.
 
 hl.bind(
     "mouse:272",
@@ -555,6 +566,7 @@ hl.bind(
     }
 )
 
+
 -- SUPER + left mouse:
 -- move the current tile/window.
 hl.bind(
@@ -564,6 +576,7 @@ hl.bind(
         mouse = true,
     }
 )
+
 
 -- SUPER + right mouse:
 -- resize the current tile/window.
@@ -580,7 +593,6 @@ hl.bind(
 ---- WINDOWS AND WORKSPACES ----
 --------------------------------
 
--- Ignore application maximize requests.
 hl.window_rule({
     name = "suppress-maximize-events",
 
@@ -592,7 +604,6 @@ hl.window_rule({
 })
 
 
--- Fix XWayland dragging issues.
 hl.window_rule({
     name = "fix-xwayland-drags",
 
@@ -609,7 +620,6 @@ hl.window_rule({
 })
 
 
--- Hyprland-run window.
 hl.window_rule({
     name = "move-hyprland-run",
 
