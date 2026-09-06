@@ -1,3 +1,4 @@
+```lua
 -- Lubai
 -- Mouse-oriented tiling environment
 --
@@ -20,7 +21,7 @@ hl.monitor({
 ---------------------
 
 local terminal    = "ghostty"
-local fileManager = "yazi"
+local fileManager = terminal .. " -e yazi"
 local launcher    = terminal .. " -e fsel"
 
 
@@ -514,3 +515,4 @@ hl.window_rule({
     move = "20 monitor_h-120",
     float = true,
 })
+```
