@@ -275,13 +275,18 @@ hl.config({
     dwindle = {
         preserve_split = true,
 
-        -- The new/current window receives the split ratio.
-        split_bias = 1,
+        -- El split favorece al tile que ya existía.
+        split_bias = 0,
 
-        -- New windows start almost completely collapsed.
-        -- 1.0 = 50/50.
-        -- 0.1 = minimum supported ratio.
-        default_split_ratio = 0.1,
+        -- Invertimos el ratio.
+        --
+        -- 1.0 = 50/50
+        -- 0.1 = extremo contrario
+        -- 1.9 = extremo inverso
+        --
+        -- La intención es que el nuevo tile nazca
+        -- ocupando la menor superficie posible.
+        default_split_ratio = 1.9,
     },
 })
 
@@ -589,9 +594,6 @@ local function splay_click()
 
     --------------------------------
     -- Create new tile
-    --
-    -- Dwindle now creates it directly
-    -- at default_split_ratio = 0.1.
     --------------------------------
 
     hl.dispatch(
