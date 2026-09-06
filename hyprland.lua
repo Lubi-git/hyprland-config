@@ -1,7 +1,9 @@
--- Lubai
+-- SplayDE
 -- Mouse-oriented tiling environment
 --
--- Based on the default Hyprland Lua configuration.
+-- Hyprland is the compositor and tiling/layout backend.
+-- Splay will provide the spatial interaction layer.
+
 
 ------------------
 ---- MONITORS ----
@@ -20,15 +22,8 @@ hl.monitor({
 ---------------------
 
 local terminal    = "ghostty"
-local fileManager = "ghostty -e yazi"
-local menu        = "ghostty -e fsel"
-
-
--------------------
----- AUTOSTART ----
--------------------
-
--- Reserved for Lubai services/applications.
+local fileManager = terminal .. " -e yazi"
+local launcher    = terminal .. " -e fsel"
 
 
 -------------------------------
@@ -40,21 +35,19 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 
 -----------------------
------ LOOK AND FEEL -----
+----- LOOK AND FEEL ---
 -----------------------
 
 hl.config({
     general = {
-        -- Lubai uses a single spatial unit:
-        -- 10 px between tiles and 20 px from the screen edge.
+        -- Splay spatial unit.
         gaps_in  = 10,
         gaps_out = 20,
 
-        -- The gap itself is the visual separation.
+        -- The gap is the visual separation between tiles.
         border_size = 0,
 
-        -- Allow the user to resize a tile directly
-        -- from its border/gap.
+        -- Hyprland handles direct tile resizing.
         resize_on_border = true,
 
         allow_tearing = false,
@@ -63,7 +56,6 @@ hl.config({
     },
 
     decoration = {
-        -- Tiles have softly rounded corners.
         rounding       = 10,
         rounding_power = 2,
 
@@ -94,7 +86,7 @@ hl.curve("easeOutQuint", {
     points = {
         {0.23, 1},
         {0.32, 1},
-    }
+    },
 })
 
 hl.curve("easeInOutCubic", {
@@ -102,7 +94,7 @@ hl.curve("easeInOutCubic", {
     points = {
         {0.65, 0.05},
         {0.36, 1},
-    }
+    },
 })
 
 hl.curve("linear", {
@@ -110,7 +102,7 @@ hl.curve("linear", {
     points = {
         {0, 0},
         {1, 1},
-    }
+    },
 })
 
 hl.curve("almostLinear", {
@@ -118,7 +110,7 @@ hl.curve("almostLinear", {
     points = {
         {0.5, 0.5},
         {0.75, 1},
-    }
+    },
 })
 
 hl.curve("quick", {
@@ -126,15 +118,16 @@ hl.curve("quick", {
     points = {
         {0.15, 0},
         {0.1, 1},
-    }
+    },
 })
 
 hl.curve("easy", {
     type = "spring",
     mass = 1,
     stiffness = 238.1191,
-    dampening = 24.21279333,
+    damping = 24.21279333,
 })
+
 
 hl.animation({
     leaf = "global",
@@ -269,50 +262,15 @@ hl.animation({
 
 hl.config({
     dwindle = {
-        -- Preserve the existing spatial subdivision.
+        -- Preserve the spatial subdivision tree.
         preserve_split = true,
     },
 })
 
 
-------------------
----- MASTER ------
-------------------
-
-hl.config({
-    master = {
-        new_status = "master",
-    },
-})
-
-
 ---------------------
----- SCROLLING ------
+---- INPUT ---------
 ---------------------
-
-hl.config({
-    scrolling = {
-        fullscreen_on_one_column = true,
-    },
-})
-
-
-----------------
-----  MISC  ----
-----------------
-
-hl.config({
-    misc = {
-        -- No Hyprland mascot/logo wallpaper.
-        force_default_wallpaper = -1,
-        disable_hyprland_logo = true,
-    },
-})
-
-
----------------
----- INPUT ----
----------------
 
 hl.config({
     input = {
@@ -333,6 +291,18 @@ hl.config({
 })
 
 
+----------------
+---- MISC ------
+----------------
+
+hl.config({
+    misc = {
+        force_default_wallpaper = -1,
+        disable_hyprland_logo = true,
+    },
+})
+
+
 ---------------------
 ---- KEYBINDINGS ----
 ---------------------
@@ -341,28 +311,30 @@ local mainMod = "SUPER"
 
 
 ---------------------------
----- APPLICATIONS ----------
+---- APPLICATIONS --------
 ---------------------------
 
--- Terminal
+-- Open terminal.
 hl.bind(
     mainMod .. " + Q",
     hl.dsp.exec_cmd(terminal)
 )
 
--- File manager
+-- Open file manager.
+-- Yazi is a TUI and runs inside Ghostty.
 hl.bind(
     mainMod .. " + E",
     hl.dsp.exec_cmd(fileManager)
 )
 
--- Launcher
+-- Open application launcher.
+-- fsel is currently a placeholder launcher for SplayDE.
 hl.bind(
     mainMod .. " + R",
-    hl.dsp.exec_cmd(menu)
+    hl.dsp.exec_cmd(launcher)
 )
 
--- Close current tile/window
+-- Close current tile/window.
 hl.bind(
     mainMod .. " + C",
     hl.dsp.window.close()
@@ -370,11 +342,10 @@ hl.bind(
 
 
 ---------------------------
----- WINDOW BEHAVIOUR -----
+---- WINDOW BEHAVIOUR ----
 ---------------------------
 
--- Toggle floating.
--- Kept as a basic escape hatch during development.
+-- Temporary escape hatch while Splay is being developed.
 hl.bind(
     mainMod .. " + V",
     hl.dsp.window.float({
@@ -382,7 +353,7 @@ hl.bind(
     })
 )
 
--- Toggle the current dwindle split.
+-- Toggle the current Dwindle split.
 hl.bind(
     mainMod .. " + J",
     hl.dsp.layout("togglesplit")
@@ -390,7 +361,7 @@ hl.bind(
 
 
 ---------------------------
----- FOCUS ----------------
+---- FOCUS ---------------
 ---------------------------
 
 hl.bind(
@@ -423,7 +394,7 @@ hl.bind(
 
 
 ---------------------------
----- WORKSPACES ------------
+---- WORKSPACES -----------
 ---------------------------
 
 for i = 1, 10 do
@@ -446,10 +417,10 @@ end
 
 
 ---------------------------
----- MOUSE -----------------
+---- MOUSE ----------------
 ---------------------------
 
--- Left mouse + SUPER:
+-- SUPER + left mouse:
 -- move the current tile/window.
 hl.bind(
     mainMod .. " + mouse:272",
@@ -459,7 +430,7 @@ hl.bind(
     }
 )
 
--- Right mouse + SUPER:
+-- SUPER + right mouse:
 -- resize the current tile/window.
 hl.bind(
     mainMod .. " + mouse:273",
@@ -467,41 +438,6 @@ hl.bind(
     {
         mouse = true,
     }
-)
-
-
---------------------------------
----- TEMPORARY PRESELECT TEST ---
---------------------------------
-
--- These bindings are only for testing how Dwindle
--- places a newly opened window after a directional preselection.
---
--- The workflow is:
---   1. Focus a tile.
---   2. Press one of these shortcuts.
---   3. Open a new Ghostty with Super+Q.
---
--- The new tile should be created in the selected direction.
-
-hl.bind(
-    mainMod .. " + SHIFT + right",
-    hl.dsp.layout("preselect r")
-)
-
-hl.bind(
-    mainMod .. " + SHIFT + left",
-    hl.dsp.layout("preselect l")
-)
-
-hl.bind(
-    mainMod .. " + SHIFT + up",
-    hl.dsp.layout("preselect u")
-)
-
-hl.bind(
-    mainMod .. " + SHIFT + down",
-    hl.dsp.layout("preselect d")
 )
 
 
@@ -546,6 +482,6 @@ hl.window_rule({
         class = "hyprland-run",
     },
 
-    move = "20 monitor_h-120",
+    move  = "20 monitor_h-120",
     float = true,
 })
