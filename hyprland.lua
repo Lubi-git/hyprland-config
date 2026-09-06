@@ -44,9 +44,8 @@ local splay_new_tile = false
 --------------------------------
 
 local splay_resize_active = false
-local splay_resize_window = nil
 local splay_resize_direction = nil
-local splay_resize_stable = true
+local splay_resize_stable = nil
 local splay_resize_timer = nil
 
 -- Minimum dimension for a tile to be considered stable.
@@ -56,8 +55,8 @@ local SPLAY_MIN_TILE_SIZE = 200
 local SPLAY_RESIZE_BORDER_SIZE = 5
 
 -- Neon colors.
-local SPLAY_STABLE_COLOR = "rgb(00FFFF)"
-local SPLAY_UNSTABLE_COLOR = "rgb(FF0055)"
+local SPLAY_STABLE_COLOR = "rgb(00BFFF)"
+local SPLAY_UNSTABLE_COLOR = "rgb(FF004D)"
 
 
 -------------------------------
@@ -296,12 +295,8 @@ hl.config({
     dwindle = {
         preserve_split = true,
 
-        -- El ratio se selecciona dinámicamente según
-        -- la dirección del nuevo tile.
         split_bias = 0,
 
-        -- Valor inicial por defecto.
-        -- Se modifica justo antes de crear cada tile.
         default_split_ratio = 1.9,
     },
 })
@@ -534,48 +529,94 @@ end
 
 
 --------------------------------
----- SPLAY RESIZE FEEDBACK ----
+---- SPLAY RESIZE RULES --------
+--------------------------------
+--
+-- Instead of modifying the window
+-- directly with set_prop(), Splay
+-- marks the active tile with a
+-- dynamic tag.
+--
+-- Hyprland then applies the correct
+-- border rule automatically.
+--
+
+hl.window_rule({
+    name = "splay-resize-stable",
+
+    match = {
+        tag = "splay-resize-stable",
+    },
+
+    border_size = SPLAY_RESIZE_BORDER_SIZE,
+
+    border_color =
+        SPLAY_STABLE_COLOR
+        .. " "
+        .. SPLAY_STABLE_COLOR,
+})
+
+
+hl.window_rule({
+    name = "splay-resize-unstable",
+
+    match = {
+        tag = "splay-resize-unstable",
+    },
+
+    border_size = SPLAY_RESIZE_BORDER_SIZE,
+
+    border_color =
+        SPLAY_UNSTABLE_COLOR
+        .. " "
+        .. SPLAY_UNSTABLE_COLOR,
+})
+
+
+--------------------------------
+---- SPLAY RESIZE TAG STATE ----
 --------------------------------
 
-local function splay_set_resize_border(window, stable)
+local function splay_set_resize_state(stable)
 
-    if not window then
-        return
-    end
+    --------------------------------
+    -- Remove both possible states
+    --------------------------------
 
-    local color
+    hl.dispatch(
+        hl.dsp.window.tag({
+            tag = "-splay-resize-stable",
+        })
+    )
+
+    hl.dispatch(
+        hl.dsp.window.tag({
+            tag = "-splay-resize-unstable",
+        })
+    )
+
+
+    --------------------------------
+    -- Apply current state
+    --------------------------------
 
     if stable then
-        color = SPLAY_STABLE_COLOR
+
+        hl.dispatch(
+            hl.dsp.window.tag({
+                tag = "+splay-resize-stable",
+            })
+        )
+
     else
-        color = SPLAY_UNSTABLE_COLOR
+
+        hl.dispatch(
+            hl.dsp.window.tag({
+                tag = "+splay-resize-unstable",
+            })
+        )
+
     end
-
-
-    --------------------------------
-    -- Border size
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.window.set_prop({
-            prop = "border_size",
-            value = tostring(SPLAY_RESIZE_BORDER_SIZE),
-            window = window,
-        })
-    )
-
-
-    --------------------------------
-    -- Border color
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.window.set_prop({
-            prop = "border_color",
-            value = color,
-            window = window,
-        })
-    )
 end
 
 
@@ -589,7 +630,12 @@ local function splay_update_resize_state()
         return
     end
 
-    local window = splay_resize_window
+
+    --------------------------------
+    -- Always inspect active tile
+    --------------------------------
+
+    local window = hl.get_active_window()
 
     if not window then
         return
@@ -625,21 +671,20 @@ local function splay_update_resize_state()
     -- Determine stability
     --------------------------------
 
-    local stable = dimension >= SPLAY_MIN_TILE_SIZE
+    local stable =
+        dimension >= SPLAY_MIN_TILE_SIZE
 
 
     --------------------------------
-    -- Only update when state changes
+    -- Only change tag when state changes
     --------------------------------
 
     if stable ~= splay_resize_stable then
 
         splay_resize_stable = stable
 
-        splay_set_resize_border(
-            window,
-            stable
-        )
+        splay_set_resize_state(stable)
+
     end
 end
 
@@ -648,35 +693,22 @@ end
 ---- START RESIZE FEEDBACK ----
 --------------------------------
 
-local function splay_start_resize_feedback(
-    window,
-    direction
-)
-
-    if not window then
-        return
-    end
-
+local function splay_start_resize_feedback(direction)
 
     splay_resize_active = true
-    splay_resize_window = window
     splay_resize_direction = direction
-
-    splay_resize_stable = true
-
-
-    --------------------------------
-    -- Initial state
-    --------------------------------
-
-    splay_set_resize_border(
-        window,
-        true
-    )
+    splay_resize_stable = nil
 
 
     --------------------------------
-    -- Monitor tile continuously
+    -- Evaluate immediately
+    --------------------------------
+
+    splay_update_resize_state()
+
+
+    --------------------------------
+    -- Monitor continuously
     --------------------------------
 
     splay_resize_timer = hl.timer(
@@ -704,7 +736,12 @@ local function splay_end_resize_feedback()
     end
 
 
-    local window = splay_resize_window
+    --------------------------------
+    -- Get final tile
+    --------------------------------
+
+    local window = hl.get_active_window()
+
     local stable = splay_resize_stable
 
 
@@ -722,13 +759,12 @@ local function splay_end_resize_feedback()
 
 
     --------------------------------
-    -- Clear resize state
+    -- Clear Splay resize state
     --------------------------------
 
     splay_resize_active = false
-    splay_resize_window = nil
     splay_resize_direction = nil
-    splay_resize_stable = true
+    splay_resize_stable = nil
 
 
     --------------------------------
@@ -737,12 +773,20 @@ local function splay_end_resize_feedback()
 
     if not stable then
 
+        --------------------------------
+        -- Remove temporary tag
+        --------------------------------
+
         if window then
 
             hl.dispatch(
-                hl.dsp.window.close({
-                    window = window,
+                hl.dsp.window.tag({
+                    tag = "-splay-resize-unstable",
                 })
+            )
+
+            hl.dispatch(
+                hl.dsp.window.close()
             )
 
         end
@@ -758,10 +802,8 @@ local function splay_end_resize_feedback()
     if window then
 
         hl.dispatch(
-            hl.dsp.window.set_prop({
-                prop = "border_size",
-                value = "0",
-                window = window,
+            hl.dsp.window.tag({
+                tag = "-splay-resize-stable",
             })
         )
 
@@ -901,13 +943,6 @@ hl.bind(
 
 
             --------------------------------
-            -- Capture new tile
-            --------------------------------
-
-            local window = hl.get_active_window()
-
-
-            --------------------------------
             -- Start native resize
             --------------------------------
 
@@ -921,7 +956,6 @@ hl.bind(
             --------------------------------
 
             splay_start_resize_feedback(
-                window,
                 splay_spawn_direction
             )
 
