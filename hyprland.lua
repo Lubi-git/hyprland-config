@@ -189,7 +189,6 @@ hl.animation({
     enabled = true,
     speed = 1.46,
     bezier = "linear",
-    style = "popin 87%",
 })
 
 hl.animation({
