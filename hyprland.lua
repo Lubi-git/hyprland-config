@@ -20,8 +20,8 @@ hl.monitor({
 ---------------------
 
 local terminal    = "ghostty"
-local fileManager = terminal .. " -e yazi"
-local launcher    = terminal .. " -e fsel"
+local fileManager = "ghostty -e yazi"
+local menu        = "ghostty -e fsel"
 
 
 -------------------
@@ -359,7 +359,7 @@ hl.bind(
 -- Launcher
 hl.bind(
     mainMod .. " + R",
-    hl.dsp.exec_cmd(launcher)
+    hl.dsp.exec_cmd(menu)
 )
 
 -- Close current tile/window
@@ -467,6 +467,41 @@ hl.bind(
     {
         mouse = true,
     }
+)
+
+
+--------------------------------
+---- TEMPORARY PRESELECT TEST ---
+--------------------------------
+
+-- These bindings are only for testing how Dwindle
+-- places a newly opened window after a directional preselection.
+--
+-- The workflow is:
+--   1. Focus a tile.
+--   2. Press one of these shortcuts.
+--   3. Open a new Ghostty with Super+Q.
+--
+-- The new tile should be created in the selected direction.
+
+hl.bind(
+    mainMod .. " + SHIFT + right",
+    hl.dsp.layout("preselect r")
+)
+
+hl.bind(
+    mainMod .. " + SHIFT + left",
+    hl.dsp.layout("preselect l")
+)
+
+hl.bind(
+    mainMod .. " + SHIFT + up",
+    hl.dsp.layout("preselect u")
+)
+
+hl.bind(
+    mainMod .. " + SHIFT + down",
+    hl.dsp.layout("preselect d")
 )
 
 
