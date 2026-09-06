@@ -275,10 +275,13 @@ hl.config({
     dwindle = {
         preserve_split = true,
 
-        -- The split ratio belongs to the current window.
-        -- This is important because the current window after
-        -- window.open is the newly created Splay tile.
+        -- The new/current window receives the split ratio.
         split_bias = 1,
+
+        -- New windows start almost completely collapsed.
+        -- 1.0 = 50/50.
+        -- 0.1 = minimum supported ratio.
+        default_split_ratio = 0.1,
     },
 })
 
@@ -510,46 +513,6 @@ end
 
 
 --------------------------------
----- INITIALIZE NEW TILE -------
---------------------------------
-
-hl.on("window.open", function(window)
-
-    if not splay_spawn_pending then
-        return
-    end
-
-    if not splay_spawn_direction then
-        return
-    end
-
-    splay_spawn_pending = false
-    splay_spawn_direction = nil
-
-
-    --------------------------------
-    -- Collapse the new tile using
-    -- the Dwindle split itself.
-    --------------------------------
-    --
-    -- 0.1 is the minimum split ratio
-    -- accepted by Dwindle.
-    --
-    -- split_bias = 1 means the ratio
-    -- belongs to the current window,
-    -- which is the newly opened tile.
-    --
-
-    hl.dispatch(
-        hl.dsp.layout(
-            "splitratio 0.1 exact"
-        )
-    )
-
-end)
-
-
---------------------------------
 ---- SPLAY CLICK ---------------
 --------------------------------
 
@@ -626,6 +589,9 @@ local function splay_click()
 
     --------------------------------
     -- Create new tile
+    --
+    -- Dwindle now creates it directly
+    -- at default_split_ratio = 0.1.
     --------------------------------
 
     hl.dispatch(
