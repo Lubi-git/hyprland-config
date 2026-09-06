@@ -21,7 +21,7 @@ hl.monitor({
 
 local terminal    = "ghostty"
 local fileManager = "yazi"
-local menu        = "hyprlauncher"
+local launcher    = terminal .. " -e fsel"
 
 
 -------------------
@@ -359,7 +359,7 @@ hl.bind(
 -- Launcher
 hl.bind(
     mainMod .. " + R",
-    hl.dsp.exec_cmd(menu)
+    hl.dsp.exec_cmd(launcher)
 )
 
 -- Close current tile/window
