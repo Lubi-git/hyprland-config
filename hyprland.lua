@@ -30,19 +30,12 @@ local launcher    = terminal .. " -e fsel"
 ---- SPLAY STATE ---------------
 --------------------------------
 
--- First click arms an edge.
 local splay_click_pending = false
 local splay_click_direction = nil
 
--- Becomes true when Splay has requested a new window.
---
--- The window.open event consumes this flag and collapses
--- the newly-created tile to its minimum spatial size.
 local splay_spawn_pending = false
 local splay_spawn_direction = nil
 
--- Signals that the next mouse bind invocation should
--- start the native Hyprland resize operation.
 local splay_new_tile = false
 
 
@@ -60,13 +53,11 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 hl.config({
     general = {
-        -- Splay spatial unit.
         gaps_in  = 10,
         gaps_out = 20,
 
         border_size = 0,
 
-        -- Native Hyprland resizing.
         resize_on_border = true,
         extend_border_grab_area = 10,
 
@@ -197,7 +188,8 @@ hl.animation({
     leaf = "fadeOut",
     enabled = true,
     speed = 1.46,
-    bezier = "almostLinear",
+    bezier = "linear",
+    style = "popin 87%",
 })
 
 hl.animation({
@@ -311,8 +303,6 @@ hl.config({
     binds = {
         drag_threshold = 10,
 
-        -- Allow normal mouse interaction to continue
-        -- when Splay has a mouse bind active.
         pass_mouse_when_bound = true,
     },
 })
@@ -519,21 +509,6 @@ end
 ---- COLLAPSE NEW TILE ---------
 --------------------------------
 
--- Once the window created by Splay has been fully opened,
--- collapse it along the split axis.
---
--- l / r:
---     width  = 1px
---     height = whatever dwindle gave it
---
--- u / d:
---     width  = whatever dwindle gave it
---     height = 1px
---
--- The following native resize operation is only used to
--- establish the initial geometry. The subsequent mouse
--- resize remains completely native to Hyprland.
-
 hl.on("window.open", function(window)
 
     if not splay_spawn_pending then
@@ -544,50 +519,46 @@ hl.on("window.open", function(window)
         return
     end
 
-
     local direction = splay_spawn_direction
-
-    --------------------------------
-    -- Consume Splay spawn state.
-    --------------------------------
 
     splay_spawn_pending = false
     splay_spawn_direction = nil
 
-
-    --------------------------------
-    -- Make sure we have geometry.
-    --------------------------------
-
     if not window.size then
         return
     end
-
 
     local width  = window.size.x
     local height = window.size.y
 
 
     --------------------------------
-    -- Collapse split axis.
+    -- Horizontal split
     --------------------------------
 
     if direction == "l" or direction == "r" then
 
         hl.dispatch(
             hl.dsp.window.resize({
-                x      = 1,
-                y      = height,
+                x = 1,
+                y = height,
+                relative = false,
                 window = window,
             })
         )
+
+
+    --------------------------------
+    -- Vertical split
+    --------------------------------
 
     elseif direction == "u" or direction == "d" then
 
         hl.dispatch(
             hl.dsp.window.resize({
-                x      = width,
-                y      = 1,
+                x = width,
+                y = 1,
+                relative = false,
                 window = window,
             })
         )
@@ -652,8 +623,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Tell the window.open event
-    -- which new tile belongs to Splay.
+    -- Register new Splay tile
     --------------------------------
 
     splay_spawn_pending = true
@@ -661,8 +631,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- The new window is preselected
-    -- in the requested direction.
+    -- Preselect split direction
     --------------------------------
 
     hl.dispatch(
@@ -673,7 +642,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Create the new tile.
+    -- Create new tile
     --------------------------------
 
     hl.dispatch(
@@ -682,8 +651,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Tell the second mouse bind
-    -- to start native resize.
+    -- Start native resize
     --------------------------------
 
     splay_new_tile = true
@@ -694,34 +662,9 @@ end
 ---- SPLAY MOUSE BIND ----------
 --------------------------------
 
--- LMB has two simultaneous roles here:
---
--- 1. Splay click detection.
--- 2. Native Hyprland resize.
---
--- On the second click:
---
---     preselect
---        ↓
---     create terminal
---        ↓
---     window.open
---        ↓
---     new tile becomes 1px
---        ↓
---     native resize starts
---
--- Because the new tile is already collapsed when resize
--- starts, dragging the mouse makes it appear to emerge
--- from the selected edge.
-
 hl.bind(
     "mouse:272",
     function()
-
-        --------------------------------
-        -- New tile has just been created.
-        --------------------------------
 
         if splay_new_tile then
 
@@ -733,11 +676,6 @@ hl.bind(
 
             return
         end
-
-
-        --------------------------------
-        -- Normal Splay click.
-        --------------------------------
 
         splay_click()
 
