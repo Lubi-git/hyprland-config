@@ -21,7 +21,7 @@ hl.monitor({
 ---- MY PROGRAMS ----
 ---------------------
 
-local terminal    = "ghostty"
+local terminal    = "kitty"
 local fileManager = terminal .. " -e yazi"
 local launcher    = terminal .. " -e fsel"
 
