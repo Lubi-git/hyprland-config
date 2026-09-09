@@ -1,3 +1,4 @@
+```lua
 -- SplayDE
 -- Mouse-oriented tiling environment
 --
@@ -49,7 +50,7 @@ local splay_resize_direction = nil
 local splay_resize_start_x = 0
 local splay_resize_start_y = 0
 
-local splay_resize_valid = true
+local splay_resize_valid = false
 local splay_resize_timer = nil
 
 
@@ -57,15 +58,10 @@ local splay_resize_timer = nil
 ---- SPLAY RESIZE SETTINGS -----
 --------------------------------
 
--- Minimum size of the newly-created tile.
 local SPLAY_MIN_SIZE = 120
 
--- Width of the temporary feedback border.
+-- Border feedback width.
 local SPLAY_FEEDBACK_BORDER = 4
-
--- Feedback colors.
-local SPLAY_VALID_COLOR = "rgb(00FFFF)"
-local SPLAY_INVALID_COLOR = "rgb(FF0055)"
 
 
 -------------------------------
@@ -113,11 +109,6 @@ hl.config({
 
     animations = {
         enabled = true,
-    },
-
-    col = {
-        active_border = SPLAY_VALID_COLOR,
-        inactive_border = SPLAY_VALID_COLOR,
     },
 })
 
@@ -547,53 +538,6 @@ end
 
 
 --------------------------------
----- SPLAY FEEDBACK ------------
---------------------------------
-
-local function splay_set_feedback(valid)
-
-    if valid then
-
-        hl.config({
-            general = {
-                border_size = SPLAY_FEEDBACK_BORDER,
-            },
-
-            col = {
-                active_border = SPLAY_VALID_COLOR,
-                inactive_border = SPLAY_VALID_COLOR,
-            },
-        })
-
-    else
-
-        hl.config({
-            general = {
-                border_size = SPLAY_FEEDBACK_BORDER,
-            },
-
-            col = {
-                active_border = SPLAY_INVALID_COLOR,
-                inactive_border = SPLAY_INVALID_COLOR,
-            },
-        })
-
-    end
-end
-
-
-local function splay_clear_feedback()
-
-    hl.config({
-        general = {
-            border_size = 0,
-        },
-    })
-
-end
-
-
---------------------------------
 ---- SPLAY DISTANCE ------------
 --------------------------------
 
@@ -615,10 +559,7 @@ local function splay_get_distance()
 
         return math.abs(dx)
 
-    end
-
-
-    if splay_resize_direction == "u"
+    elseif splay_resize_direction == "u"
         or splay_resize_direction == "d" then
 
         return math.abs(dy)
@@ -631,7 +572,7 @@ end
 
 
 --------------------------------
----- SPLAY UPDATE FEEDBACK -----
+---- SPLAY FEEDBACK ------------
 --------------------------------
 
 local function splay_update_feedback()
@@ -650,7 +591,29 @@ local function splay_update_feedback()
 
         splay_resize_valid = valid
 
-        splay_set_feedback(valid)
+        --------------------------------
+        -- Border width is the only
+        -- feedback we can safely change
+        -- with the currently verified ABI.
+        --------------------------------
+
+        if valid then
+
+            hl.config({
+                general = {
+                    border_size = SPLAY_FEEDBACK_BORDER,
+                },
+            })
+
+        else
+
+            hl.config({
+                general = {
+                    border_size = SPLAY_FEEDBACK_BORDER,
+                },
+            })
+
+        end
 
     end
 
@@ -679,28 +642,33 @@ local function splay_start_resize()
 
 
     --------------------------------
-    -- Initial state:
-    -- tile has effectively zero
-    -- Splay extrusion.
+    -- Show feedback border.
     --------------------------------
 
-    splay_set_feedback(false)
+    hl.config({
+        general = {
+            border_size = SPLAY_FEEDBACK_BORDER,
+        },
+    })
 
 
     --------------------------------
-    -- Continuously track the mouse
-    -- while native resize is active.
+    -- Track cursor distance.
     --------------------------------
 
     if splay_resize_timer then
+
         splay_resize_timer:stop()
         splay_resize_timer = nil
+
     end
 
 
     splay_resize_timer = hl.timer(
         function()
+
             splay_update_feedback()
+
         end,
         {
             timeout = 16,
@@ -722,19 +690,11 @@ local function splay_end_resize()
     end
 
 
-    --------------------------------
-    -- Final evaluation.
-    --------------------------------
-
     splay_update_feedback()
 
 
     local valid = splay_resize_valid
 
-
-    --------------------------------
-    -- Stop tracking.
-    --------------------------------
 
     splay_resize_active = false
 
@@ -748,7 +708,7 @@ local function splay_end_resize()
 
 
     --------------------------------
-    -- Remove undersized tile.
+    -- Remove tile if below minimum.
     --------------------------------
 
     if not valid then
@@ -761,10 +721,14 @@ local function splay_end_resize()
 
 
     --------------------------------
-    -- Restore normal Splay look.
+    -- Restore borderless layout.
     --------------------------------
 
-    splay_clear_feedback()
+    hl.config({
+        general = {
+            border_size = 0,
+        },
+    })
 
 
     splay_resize_direction = nil
@@ -827,29 +791,21 @@ local function splay_click()
     --------------------------------
 
     splay_click_pending = false
-
-
     splay_click_direction = nil
 
 
     --------------------------------
-    -- Register new Splay tile
+    -- Register new tile.
     --------------------------------
 
     splay_spawn_pending = true
     splay_spawn_direction = direction
 
-
-    --------------------------------
-    -- Preserve direction
-    -- for resize feedback.
-    --------------------------------
-
     splay_resize_direction = direction
 
 
     --------------------------------
-    -- Configure ratio
+    -- Configure split ratio.
     --------------------------------
 
     if direction == "r"
@@ -873,7 +829,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Preselect split direction
+    -- Preselect.
     --------------------------------
 
     hl.dispatch(
@@ -884,7 +840,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Create new tile
+    -- Create tile.
     --------------------------------
 
     hl.dispatch(
@@ -893,8 +849,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- The next mouse press enters
-    -- native resize.
+    -- Next press starts resize.
     --------------------------------
 
     splay_new_tile = true
@@ -910,15 +865,9 @@ hl.bind(
     "mouse:272",
     function()
 
-        --------------------------------
-        -- New tile:
-        -- begin native resize.
-        --------------------------------
-
         if splay_new_tile then
 
             splay_new_tile = false
-
 
             splay_start_resize()
 
@@ -931,11 +880,6 @@ hl.bind(
             return
         end
 
-
-        --------------------------------
-        -- Otherwise process Splay
-        -- click-and-a-half detection.
-        --------------------------------
 
         splay_click()
 
@@ -953,10 +897,6 @@ hl.bind(
 hl.bind(
     "mouse:272",
     function()
-
-        --------------------------------
-        -- Finish active Splay resize.
-        --------------------------------
 
         if splay_resize_active then
 
@@ -1017,3 +957,4 @@ hl.window_rule({
     move  = "20 monitor_h-120",
     float = true,
 })
+```
