@@ -57,10 +57,10 @@ local splay_resize_timer = nil
 ---- SPLAY RESIZE SETTINGS -----
 --------------------------------
 
-local SPLAY_MIN_SIZE = 120
+local SPLAY_MIN_SIZE = 9
 
 -- Border feedback width.
-local SPLAY_FEEDBACK_BORDER = 4
+local SPLAY_FEEDBACK_BORDER = 5
 
 
 -------------------------------
