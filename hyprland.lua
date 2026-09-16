@@ -97,11 +97,11 @@ local splay_focus_locked = false
 
 -- New tiles try to appear as a thin
 -- extrusion of this many pixels.
-local SPLAY_SPAWN_SIZE = 1
+local SPLAY_SPAWN_SIZE = 96
 
 -- Tile survival threshold.
-local SPLAY_MIN_WIDTH  = 160
-local SPLAY_MIN_HEIGHT = 120
+local SPLAY_MIN_WIDTH  = 50
+local SPLAY_MIN_HEIGHT = 50
 
 -- Detect that a native Hyprland resize
 -- actually changed the tile.
