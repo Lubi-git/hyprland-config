@@ -67,7 +67,7 @@ local splay_resize_window = nil
 -- Physical edge being manipulated.
 local splay_resize_edge = nil
 
--- Side from which the new tile was created.
+-- Side from which a new tile was created.
 local splay_resize_spawn_direction = nil
 
 local splay_resize_start_x = 0
@@ -76,8 +76,8 @@ local splay_resize_start_y = 0
 local splay_resize_last_x = 0
 local splay_resize_last_y = 0
 
--- Used to convert cursor pixels into
--- Dwindle split-ratio deltas.
+-- Converts cursor pixels into
+-- Dwindle splitratio deltas.
 local splay_resize_split_scale = 1
 
 local splay_resize_valid = true
@@ -136,6 +136,15 @@ hl.config({
         allow_tearing = false,
 
         layout = "dwindle",
+    },
+
+    --------------------------------
+    -- Never let focus changes move
+    -- the physical cursor.
+    --------------------------------
+
+    cursor = {
+        no_warps = true,
     },
 
     decoration = {
@@ -807,6 +816,23 @@ local function splay_reset_resize()
     splay_stop_resize_timer()
 
 
+    --------------------------------
+    -- Restore normal focus behavior
+    -- after the initial spawned-tile
+    -- resize finishes.
+    --------------------------------
+
+    if splay_resize_spawned then
+
+        hl.config({
+            input = {
+                follow_mouse = 1,
+            },
+        })
+
+    end
+
+
     splay_resize_active = false
     splay_resize_committed = false
     splay_resize_spawned = false
@@ -851,42 +877,17 @@ local function splay_apply_resize(
     ---- NEWLY SPAWNED TILE -------
     --------------------------------
     --
+    -- Manipulate the Dwindle split
+    -- directly.
+    --
     -- IMPORTANT:
     --
-    -- Do NOT use window.resize()
-    -- here.
+    -- Focus is NOT changed here.
     --
-    -- The newly-created Dwindle tile
-    -- belongs to the split we just
-    -- inserted. We manipulate that
-    -- split directly.
-    --
-    --
-    -- Positive splitratio:
-    --
-    -- horizontal -> divider right
-    -- vertical   -> divider down
-    --
-    -- Negative:
-    --
-    -- horizontal -> divider left
-    -- vertical   -> divider up
-    --
-    --
-    -- Therefore NO directional sign
-    -- inversion is required:
-    --
-    -- SPAWN LEFT
-    --   cursor right = grow
-    --
-    -- SPAWN RIGHT
-    --   cursor left  = grow
-    --
-    -- SPAWN UP
-    --   cursor down  = grow
-    --
-    -- SPAWN DOWN
-    --   cursor up    = grow
+    -- The spawned tile was focused
+    -- once in splay_begin_resize()
+    -- and follow_mouse is temporarily
+    -- disabled.
     --------------------------------
 
     if splay_resize_spawned
@@ -917,40 +918,10 @@ local function splay_apply_resize(
         end
 
 
-        --------------------------------
-        -- Ensure splitratio targets the
-        -- split containing the newly
-        -- spawned tile.
-        --
-        -- follow_mouse may have changed
-        -- focus while dragging across
-        -- the neighbouring tile.
-        --------------------------------
-
-        hl.dispatch(
-            hl.dsp.focus({
-                window = window,
-            })
-        )
-
-
-        --------------------------------
-        -- Convert physical cursor
-        -- movement to Dwindle ratio.
-        --
-        -- splay_resize_split_scale is
-        -- calculated when the new tile
-        -- appears.
-        --------------------------------
-
         local delta =
             pixels
             / splay_resize_split_scale
 
-
-        --------------------------------
-        -- Avoid microscopic messages.
-        --------------------------------
 
         if math.abs(delta) < 0.000001 then
             return
@@ -977,8 +948,8 @@ local function splay_apply_resize(
     ---- EXISTING TILE ------------
     --------------------------------
     --
-    -- Existing tiles keep using the
-    -- explicit resize dispatcher.
+    -- Existing tiles still use
+    -- explicit resize deltas.
     --------------------------------
 
     local rx = 0
@@ -1120,7 +1091,7 @@ local function splay_resize_tick()
 
         --------------------------------
         -- First normal resize consumes
-        -- all accumulated cursor travel.
+        -- all accumulated movement.
         --------------------------------
 
         splay_apply_resize(
@@ -1176,8 +1147,7 @@ local function splay_resize_tick()
 
 
     --------------------------------
-    -- Feedback uses the ACTUAL tile
-    -- geometry after Dwindle updates.
+    -- Feedback uses actual geometry.
     --------------------------------
 
     splay_resize_valid =
@@ -1211,7 +1181,7 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- Clean stale operation.
+    -- Clean stale state.
     --------------------------------
 
     if splay_resize_active then
@@ -1250,6 +1220,36 @@ local function splay_begin_resize(
         spawn_direction
 
 
+    --------------------------------
+    -- IMPORTANT:
+    --
+    -- splitratio operates on the
+    -- active Dwindle split.
+    --
+    -- Focus the new tile ONCE and
+    -- temporarily stop follow_mouse
+    -- from switching focus while the
+    -- divider moves beneath cursor.
+    --------------------------------
+
+    if splay_resize_spawned then
+
+        hl.config({
+            input = {
+                follow_mouse = 0,
+            },
+        })
+
+
+        hl.dispatch(
+            hl.dsp.focus({
+                window = window,
+            })
+        )
+
+    end
+
+
     splay_resize_start_x =
         cursor.x
 
@@ -1264,8 +1264,8 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- Spawned tile is already in
-    -- resize mode immediately.
+    -- Spawned tile is immediately
+    -- considered in resize state.
     --------------------------------
 
     splay_resize_committed =
@@ -1279,30 +1279,7 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- SPLIT SCALE
-    --
-    -- default_split_ratio uses:
-    --
-    --   0.1 for left/up
-    --   1.9 for right/down
-    --
-    -- In both cases the newly-created
-    -- tile starts at roughly 5% of its
-    -- parent split.
-    --
-    -- Therefore:
-    --
-    -- parent dimension ≈ new size * 20
-    --
-    -- One splitratio unit represents
-    -- roughly half the parent dimension,
-    -- giving:
-    --
-    -- pixels per ratio ≈ new size * 10
-    --
-    -- This makes cursor movement track
-    -- the divider much more naturally
-    -- than a hard-coded sensitivity.
+    -- Calculate splitratio scale.
     --------------------------------
 
     if splay_resize_spawned
@@ -1337,8 +1314,8 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- Immediate feedback for new
-    -- tile.
+    -- Newly spawned tile gets
+    -- feedback immediately.
     --------------------------------
 
     if splay_resize_committed then
@@ -1351,8 +1328,7 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- Resize is entirely driven by
-    -- cursor sampling.
+    -- Cursor-driven resize timer.
     --------------------------------
 
     splay_resize_timer = hl.timer(
@@ -1382,7 +1358,7 @@ local function splay_end_resize()
 
 
     --------------------------------
-    -- Consume final mouse movement.
+    -- Consume final cursor movement.
     --------------------------------
 
     splay_resize_tick()
@@ -1402,8 +1378,7 @@ local function splay_end_resize()
 
 
     --------------------------------
-    -- Not a resize:
-    -- it was only the first click.
+    -- It was only a click.
     --------------------------------
 
     if not committed then
@@ -1444,6 +1419,10 @@ local function splay_end_resize()
 
     end
 
+
+    --------------------------------
+    -- Restores follow_mouse too.
+    --------------------------------
 
     splay_reset_resize()
 
@@ -1517,8 +1496,6 @@ end
 local function splay_spawn_tile(direction)
 
     --------------------------------
-    -- Configure insertion ratio.
-    --
     -- New tile starts very small.
     --------------------------------
 
@@ -1554,7 +1531,7 @@ local function splay_spawn_tile(direction)
 
 
     --------------------------------
-    -- Mark before spawning.
+    -- Mark BEFORE spawning.
     --------------------------------
 
     splay_spawn_generation =
@@ -1566,8 +1543,8 @@ local function splay_spawn_tile(direction)
 
 
     --------------------------------
-    -- Tile appears on the second
-    -- press: click-and-a-half.
+    -- Tile appears on second press:
+    -- "click and a half".
     --------------------------------
 
     hl.dispatch(
@@ -1598,8 +1575,8 @@ hl.on(
 
 
         --------------------------------
-        -- Give Dwindle one tick to
-        -- finish creating its split.
+        -- Let Dwindle finish creating
+        -- the split first.
         --------------------------------
 
         hl.timer(
@@ -1631,19 +1608,7 @@ hl.on(
 
 
                 --------------------------------
-                -- Focus exact new tile.
-                --------------------------------
-
-                hl.dispatch(
-                    hl.dsp.focus({
-                        window = window,
-                    })
-                )
-
-
-                --------------------------------
-                -- Physical edge of the NEW
-                -- tile touching the old one.
+                -- Physical edge of new tile.
                 --------------------------------
 
                 local edge =
@@ -1653,11 +1618,10 @@ hl.on(
 
 
                 --------------------------------
-                -- Enter resize immediately.
+                -- Begin initial resize.
                 --
-                -- Spawn direction is retained
-                -- because splitratio uses the
-                -- orientation of the split.
+                -- Focus is handled ONCE inside
+                -- splay_begin_resize().
                 --------------------------------
 
                 splay_begin_resize(
@@ -1712,10 +1676,7 @@ hl.bind(
 
 
         --------------------------------
-        -- SECOND PRESS
-        --
-        -- Same edge direction inside
-        -- the 250 ms interval.
+        -- SECOND PRESS.
         --------------------------------
 
         if splay_click_pending
@@ -1748,8 +1709,8 @@ hl.bind(
 
 
         --------------------------------
-        -- Different edge cancels old
-        -- click sequence.
+        -- Different edge cancels an
+        -- old pending click.
         --------------------------------
 
         if splay_click_pending then
@@ -1815,10 +1776,10 @@ hl.bind(
 
 
         --------------------------------
-        -- Second press created a tile.
+        -- Second press created tile.
         --
-        -- Do not reinterpret it as the
-        -- first click of another cycle.
+        -- Do not reinterpret it as
+        -- another first click.
         --------------------------------
 
         if press_kind == "spawn" then
@@ -1835,7 +1796,6 @@ hl.bind(
 
         --------------------------------
         -- No resize occurred:
-        --
         -- this was the first click.
         --------------------------------
 
