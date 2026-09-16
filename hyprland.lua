@@ -32,9 +32,8 @@ local launcher    = terminal .. " -e fsel"
 
 local splay_mouse_down = false
 
-local splay_press_action = nil
+local splay_press_kind = nil
 local splay_press_direction = nil
-local splay_press_window = nil
 
 
 --------------------------------
@@ -59,13 +58,18 @@ local splay_spawn_generation = 0
 ---- SPLAY RESIZE STATE --------
 --------------------------------
 
-local splay_resize_tracking = false
+local splay_resize_active = false
 local splay_resize_committed = false
+local splay_resize_spawned = false
 
 local splay_resize_window = nil
+local splay_resize_edge = nil
 
-local splay_resize_initial_width = 0
-local splay_resize_initial_height = 0
+local splay_resize_start_x = 0
+local splay_resize_start_y = 0
+
+local splay_resize_last_x = 0
+local splay_resize_last_y = 0
 
 local splay_resize_valid = true
 local splay_resize_feedback_state = nil
@@ -74,14 +78,21 @@ local splay_resize_timer = nil
 
 
 --------------------------------
----- SPLAY RESIZE SETTINGS -----
+---- SPLAY SETTINGS ------------
 --------------------------------
 
+-- Minimum usable tile size.
 local SPLAY_MIN_WIDTH  = 160
 local SPLAY_MIN_HEIGHT = 120
 
-local SPLAY_RESIZE_EPSILON = 1
+-- A normal edge interaction must move
+-- this much before it becomes a resize.
+local SPLAY_DRAG_THRESHOLD = 10
 
+-- Poll cursor / geometry at ~60 Hz.
+local SPLAY_RESIZE_INTERVAL = 16
+
+-- Temporary resize feedback.
 local SPLAY_FEEDBACK_BORDER = 5
 
 local SPLAY_FEEDBACK_KEEP =
@@ -100,7 +111,7 @@ hl.env("HYPRCURSOR_SIZE", "24")
 
 
 -----------------------
------ LOOK AND FEEL ---
+---- LOOK AND FEEL ----
 -----------------------
 
 hl.config({
@@ -111,7 +122,8 @@ hl.config({
         border_size = 0,
 
         --------------------------------
-        -- Splay owns border resizing.
+        -- Splay performs border resize
+        -- itself using explicit deltas.
         --------------------------------
 
         resize_on_border = false,
@@ -488,162 +500,90 @@ end
 
 
 --------------------------------
----- SPLAY EDGE FOR WINDOW -----
---------------------------------
-
-local function splay_edge_for_window(
-    window,
-    cursor
-)
-
-    if not window
-        or not window.at
-        or not window.size then
-
-        return nil
-    end
-
-
-    local x = window.at.x
-    local y = window.at.y
-
-    local w = window.size.x
-    local h = window.size.y
-
-    local cx = cursor.x
-    local cy = cursor.y
-
-
-    ----------------
-    -- LEFT EDGE --
-    ----------------
-
-    if cx >= x - 10
-        and cx <= x + 10
-        and cy >= y
-        and cy <= y + h then
-
-        return "l"
-    end
-
-
-    -----------------
-    -- RIGHT EDGE --
-    -----------------
-
-    if cx >= x + w - 10
-        and cx <= x + w + 10
-        and cy >= y
-        and cy <= y + h then
-
-        return "r"
-    end
-
-
-    ----------------
-    -- TOP EDGE --
-    ----------------
-
-    if cy >= y - 10
-        and cy <= y + 10
-        and cx >= x
-        and cx <= x + w then
-
-        return "u"
-    end
-
-
-    -------------------
-    -- BOTTOM EDGE ----
-    -------------------
-
-    if cy >= y + h - 10
-        and cy <= y + h + 10
-        and cx >= x
-        and cx <= x + w then
-
-        return "d"
-    end
-
-
-    return nil
-
-end
-
-
---------------------------------
 ---- SPLAY EDGE DETECTION ------
 --------------------------------
 
 local function get_splay_edge()
 
-    local cursor =
-        hl.get_cursor_pos()
-
+    local cursor = hl.get_cursor_pos()
 
     if not cursor then
         return nil, nil
     end
 
 
-    --------------------------------
-    -- Prefer active tile.
-    --------------------------------
-
-    local active =
-        hl.get_active_window()
-
-
-    if active then
-
-        local direction =
-            splay_edge_for_window(
-                active,
-                cursor
-            )
-
-
-        if direction then
-            return direction, active
-        end
-
-    end
-
-
-    --------------------------------
-    -- Fallback to every other tile.
-    --------------------------------
-
-    local windows =
-        hl.get_windows()
+    local windows = hl.get_windows()
 
 
     for _, window in ipairs(windows) do
 
-        local same = false
+        if window.at
+            and window.size then
 
 
-        if active
-            and active.address
-            and window.address then
+            local x = window.at.x
+            local y = window.at.y
 
-            same =
-                active.address
-                == window.address
-        end
+            local w = window.size.x
+            local h = window.size.y
 
-
-        if not same then
-
-            local direction =
-                splay_edge_for_window(
-                    window,
-                    cursor
-                )
+            local cx = cursor.x
+            local cy = cursor.y
 
 
-            if direction then
-                return direction, window
+            ----------------
+            -- LEFT EDGE --
+            ----------------
+
+            if cx >= x - 10
+                and cx <= x + 10
+                and cy >= y
+                and cy <= y + h then
+
+                return "l", window
+
+            end
+
+
+            -----------------
+            -- RIGHT EDGE --
+            -----------------
+
+            if cx >= x + w - 10
+                and cx <= x + w + 10
+                and cy >= y
+                and cy <= y + h then
+
+                return "r", window
+
+            end
+
+
+            ----------------
+            -- TOP EDGE --
+            ----------------
+
+            if cy >= y - 10
+                and cy <= y + 10
+                and cx >= x
+                and cx <= x + w then
+
+                return "u", window
+
+            end
+
+
+            -------------------
+            -- BOTTOM EDGE ----
+            -------------------
+
+            if cy >= y + h - 10
+                and cy <= y + h + 10
+                and cx >= x
+                and cx <= x + w then
+
+                return "d", window
+
             end
 
         end
@@ -652,6 +592,31 @@ local function get_splay_edge()
 
 
     return nil, nil
+
+end
+
+
+--------------------------------
+---- SPLAY OPPOSITE EDGE -------
+--------------------------------
+
+local function splay_opposite_edge(direction)
+
+    if direction == "l" then
+        return "r"
+
+    elseif direction == "r" then
+        return "l"
+
+    elseif direction == "u" then
+        return "d"
+
+    elseif direction == "d" then
+        return "u"
+    end
+
+
+    return nil
 
 end
 
@@ -669,11 +634,8 @@ local function splay_tile_is_valid(window)
     end
 
 
-    return window.size.x
-            >= SPLAY_MIN_WIDTH
-
-        and window.size.y
-            >= SPLAY_MIN_HEIGHT
+    return window.size.x >= SPLAY_MIN_WIDTH
+        and window.size.y >= SPLAY_MIN_HEIGHT
 
 end
 
@@ -710,9 +672,7 @@ end
 
 local function splay_set_feedback(valid)
 
-    local window =
-        splay_resize_window
-
+    local window = splay_resize_window
 
     if not window then
         return
@@ -729,8 +689,8 @@ local function splay_set_feedback(valid)
 
 
     --------------------------------
-    -- Avoid repeatedly sending the
-    -- same properties every 16 ms.
+    -- Do not resend the same props
+    -- every timer tick.
     --------------------------------
 
     if state ==
@@ -775,6 +735,14 @@ local function splay_set_feedback(valid)
         color
     )
 
+
+    --------------------------------
+    -- Only refresh when state
+    -- actually changes cyan/red.
+    --------------------------------
+
+    hl.exec_scheduled_prop_refresh_immediately()
+
 end
 
 
@@ -809,6 +777,9 @@ local function splay_clear_feedback(window)
         "-1"
     )
 
+
+    hl.exec_scheduled_prop_refresh_immediately()
+
 end
 
 
@@ -841,16 +812,115 @@ local function splay_reset_resize()
     splay_stop_resize_timer()
 
 
-    splay_resize_tracking = false
+    splay_resize_active = false
     splay_resize_committed = false
+    splay_resize_spawned = false
 
     splay_resize_window = nil
+    splay_resize_edge = nil
 
-    splay_resize_initial_width = 0
-    splay_resize_initial_height = 0
+    splay_resize_start_x = 0
+    splay_resize_start_y = 0
+
+    splay_resize_last_x = 0
+    splay_resize_last_y = 0
 
     splay_resize_valid = true
     splay_resize_feedback_state = nil
+
+end
+
+
+--------------------------------
+---- SPLAY APPLY RESIZE --------
+--------------------------------
+
+local function splay_apply_resize(
+    window,
+    edge,
+    dx,
+    dy
+)
+
+    if not window
+        or not edge then
+
+        return
+    end
+
+
+    local rx = 0
+    local ry = 0
+
+
+    --------------------------------
+    -- Convert cursor movement into
+    -- desired size change.
+    --
+    -- RIGHT:
+    -- drag right => larger
+    --
+    -- LEFT:
+    -- drag right => smaller
+    --
+    -- BOTTOM:
+    -- drag down => larger
+    --
+    -- TOP:
+    -- drag down => smaller
+    --------------------------------
+
+    if edge == "r" then
+
+        rx = dx
+
+
+    elseif edge == "l" then
+
+        rx = -dx
+
+
+    elseif edge == "d" then
+
+        ry = dy
+
+
+    elseif edge == "u" then
+
+        ry = -dy
+
+    end
+
+
+    --------------------------------
+    -- Nothing changed.
+    --------------------------------
+
+    if rx == 0
+        and ry == 0 then
+
+        return
+    end
+
+
+    --------------------------------
+    -- IMPORTANT:
+    --
+    -- This is NOT the interactive
+    -- mouse-resize dispatcher.
+    --
+    -- It is an explicit relative
+    -- window resize.
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.window.resize({
+            x = rx,
+            y = ry,
+            relative = true,
+            window = window,
+        })
+    )
 
 end
 
@@ -861,14 +931,12 @@ end
 
 local function splay_resize_tick()
 
-    if not splay_resize_tracking then
+    if not splay_resize_active then
         return
     end
 
 
-    local window =
-        splay_resize_window
-
+    local window = splay_resize_window
 
     if not window
         or not window.size then
@@ -877,40 +945,112 @@ local function splay_resize_tick()
     end
 
 
+    local cursor =
+        hl.get_cursor_pos()
+
+
+    if not cursor then
+        return
+    end
+
+
     --------------------------------
-    -- Normal edge press:
+    -- A normal tile does not resize
+    -- until drag threshold is crossed.
     --
-    -- it only becomes a resize once
-    -- geometry actually changes.
-    --
-    -- Initial spawn resize starts
-    -- committed immediately.
+    -- A newly spawned tile starts in
+    -- committed resize immediately.
     --------------------------------
 
     if not splay_resize_committed then
 
-        local dw =
-            math.abs(
-                window.size.x
-                - splay_resize_initial_width
-            )
+        local dx =
+            cursor.x
+            - splay_resize_start_x
+
+        local dy =
+            cursor.y
+            - splay_resize_start_y
 
 
-        local dh =
-            math.abs(
-                window.size.y
-                - splay_resize_initial_height
-            )
+        local distance
 
 
-        if dw >= SPLAY_RESIZE_EPSILON
-            or dh >= SPLAY_RESIZE_EPSILON then
+        if splay_resize_edge == "l"
+            or splay_resize_edge == "r" then
 
-            splay_resize_committed = true
+            distance = math.abs(dx)
 
         else
 
+            distance = math.abs(dy)
+
+        end
+
+
+        if distance <
+            SPLAY_DRAG_THRESHOLD then
+
             return
+        end
+
+
+        --------------------------------
+        -- First resize update uses the
+        -- entire movement accumulated
+        -- since mouse press.
+        --------------------------------
+
+        splay_resize_committed = true
+
+
+        splay_apply_resize(
+            window,
+            splay_resize_edge,
+            dx,
+            dy
+        )
+
+
+        splay_resize_last_x =
+            cursor.x
+
+        splay_resize_last_y =
+            cursor.y
+
+
+    else
+
+        --------------------------------
+        -- Subsequent updates are
+        -- incremental.
+        --------------------------------
+
+        local dx =
+            cursor.x
+            - splay_resize_last_x
+
+        local dy =
+            cursor.y
+            - splay_resize_last_y
+
+
+        if dx ~= 0
+            or dy ~= 0 then
+
+            splay_apply_resize(
+                window,
+                splay_resize_edge,
+                dx,
+                dy
+            )
+
+
+            splay_resize_last_x =
+                cursor.x
+
+            splay_resize_last_y =
+                cursor.y
 
         end
 
@@ -918,9 +1058,9 @@ local function splay_resize_tick()
 
 
     --------------------------------
-    -- The value stored here is the
-    -- exact state represented by the
-    -- cyan/red border.
+    -- Feedback follows actual tile
+    -- geometry as reported by
+    -- Hyprland.
     --------------------------------
 
     splay_resize_valid =
@@ -940,21 +1080,24 @@ end
 
 local function splay_begin_resize(
     window,
-    immediate
+    edge,
+    spawned
 )
 
     if not window
-        or not window.size then
+        or not window.size
+        or not edge then
 
         return
     end
 
 
     --------------------------------
-    -- Clean stale state.
+    -- Never allow overlapping resize
+    -- state.
     --------------------------------
 
-    if splay_resize_tracking then
+    if splay_resize_active then
 
         splay_clear_feedback(
             splay_resize_window
@@ -965,35 +1108,46 @@ local function splay_begin_resize(
     end
 
 
-    --------------------------------
-    -- Interactive resize works on
-    -- the active window.
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.focus({
-            window = window,
-        })
-    )
+    local cursor =
+        hl.get_cursor_pos()
 
 
-    splay_resize_tracking = true
+    if not cursor then
+        return
+    end
+
+
+    splay_resize_active = true
+    splay_resize_spawned =
+        spawned == true
+
     splay_resize_window = window
+    splay_resize_edge = edge
 
-    splay_resize_initial_width =
-        window.size.x
 
-    splay_resize_initial_height =
-        window.size.y
+    splay_resize_start_x =
+        cursor.x
+
+    splay_resize_start_y =
+        cursor.y
+
+    splay_resize_last_x =
+        cursor.x
+
+    splay_resize_last_y =
+        cursor.y
 
 
     --------------------------------
-    -- Newly spawned tiles enter
-    -- resize state immediately.
+    -- A spawned tile is already in
+    -- resize mode from its first frame.
+    --
+    -- An existing tile waits for
+    -- movement past the threshold.
     --------------------------------
 
     splay_resize_committed =
-        immediate == true
+        spawned == true
 
 
     splay_resize_valid =
@@ -1003,8 +1157,8 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- New tiles show feedback from
-    -- their very first frame.
+    -- Initial spawned-tile feedback
+    -- is immediate.
     --------------------------------
 
     if splay_resize_committed then
@@ -1017,7 +1171,8 @@ local function splay_begin_resize(
 
 
     --------------------------------
-    -- Track real geometry.
+    -- No Hyprland interactive resize
+    -- dispatcher is started here.
     --------------------------------
 
     splay_resize_timer = hl.timer(
@@ -1027,81 +1182,8 @@ local function splay_begin_resize(
 
         end,
         {
-            timeout = 16,
+            timeout = SPLAY_RESIZE_INTERVAL,
             type = "repeat",
-        }
-    )
-
-
-    --------------------------------
-    -- Begin interactive resize using
-    -- the currently held button.
-    --------------------------------
-
-    hl.dispatch(
-        hl.dsp.window.resize()
-    )
-
-end
-
-
---------------------------------
----- SPLAY CLOSE TILE ----------
---------------------------------
-
-local function splay_close_tile(window)
-
-    if not window then
-        return
-    end
-
-
-    --------------------------------
-    -- Preserve a stable selector.
-    --
-    -- Closing one event-loop tick
-    -- later prevents competing with
-    -- Hyprland finishing the active
-    -- mouse resize.
-    --------------------------------
-
-    local target = nil
-
-
-    if window.address then
-
-        target =
-            "address:"
-            .. tostring(window.address)
-
-    end
-
-
-    hl.timer(
-        function()
-
-            if target then
-
-                hl.dispatch(
-                    hl.dsp.window.close({
-                        window = target,
-                    })
-                )
-
-            else
-
-                hl.dispatch(
-                    hl.dsp.window.close({
-                        window = window,
-                    })
-                )
-
-            end
-
-        end,
-        {
-            timeout = 1,
-            type = "oneshot",
         }
     )
 
@@ -1114,21 +1196,13 @@ end
 
 local function splay_end_resize()
 
-    if not splay_resize_tracking then
+    if not splay_resize_active then
         return false
     end
 
 
     --------------------------------
-    -- One last sample.
-    --
-    -- IMPORTANT:
-    -- afterwards we use the stored
-    -- splay_resize_valid value.
-    --
-    -- Therefore the action always
-    -- agrees with the last cyan/red
-    -- feedback shown to the user.
+    -- Final timer sample.
     --------------------------------
 
     splay_resize_tick()
@@ -1137,14 +1211,24 @@ local function splay_end_resize()
     local window =
         splay_resize_window
 
-
     local committed =
         splay_resize_committed
 
+    local valid =
+        splay_resize_valid
+
 
     --------------------------------
-    -- No geometry change:
-    -- ordinary click, not resize.
+    -- Stop processing BEFORE close.
+    --------------------------------
+
+    splay_stop_resize_timer()
+
+
+    --------------------------------
+    -- No real resize:
+    --
+    -- this was a plain first click.
     --------------------------------
 
     if not committed then
@@ -1157,56 +1241,39 @@ local function splay_end_resize()
 
 
     --------------------------------
-    -- This is deliberately NOT a new
-    -- independent size calculation.
-    --
-    -- Red must always mean CLOSE.
-    -- Cyan must always mean KEEP.
+    -- CYAN → keep tile.
     --------------------------------
-
-    local valid =
-        splay_resize_valid
-
-
-    splay_stop_resize_timer()
-
 
     if valid then
 
-        --------------------------------
-        -- CYAN → keep tile.
-        --------------------------------
-
         splay_clear_feedback(window)
+
 
     else
 
         --------------------------------
-        -- RED → close tile.
+        -- RED → close this exact tile.
         --
-        -- Keep the red border visible
-        -- until the tile disappears.
+        -- There is no interactive
+        -- Hyprland resize state to
+        -- compete with anymore, so the
+        -- close can happen directly.
         --------------------------------
 
-        splay_close_tile(window)
+        if window then
+
+            hl.dispatch(
+                hl.dsp.window.close({
+                    window = window,
+                })
+            )
+
+        end
 
     end
 
 
-    --------------------------------
-    -- Reset interaction state.
-    --------------------------------
-
-    splay_resize_tracking = false
-    splay_resize_committed = false
-
-    splay_resize_window = nil
-
-    splay_resize_initial_width = 0
-    splay_resize_initial_height = 0
-
-    splay_resize_valid = true
-    splay_resize_feedback_state = nil
+    splay_reset_resize()
 
 
     return true
@@ -1233,7 +1300,8 @@ local function splay_arm_click(direction)
 
 
     --------------------------------
-    -- Double-click time window.
+    -- User has 250 ms to begin the
+    -- second press.
     --------------------------------
 
     hl.timer(
@@ -1243,6 +1311,7 @@ local function splay_arm_click(direction)
                 splay_click_generation then
 
                 return
+
             end
 
 
@@ -1306,8 +1375,7 @@ local function splay_spawn_tile(direction)
 
 
     --------------------------------
-    -- Tell Dwindle which side gets
-    -- the new tile.
+    -- Preselect requested edge.
     --------------------------------
 
     hl.dispatch(
@@ -1318,8 +1386,9 @@ local function splay_spawn_tile(direction)
 
 
     --------------------------------
-    -- Mark the spawn BEFORE exec so
-    -- window.open can claim it.
+    -- Mark BEFORE spawning so
+    -- window.open claims exactly the
+    -- next Splay-created tile.
     --------------------------------
 
     splay_spawn_generation =
@@ -1331,10 +1400,8 @@ local function splay_spawn_tile(direction)
 
 
     --------------------------------
-    -- SECOND PRESS:
-    --
-    -- The tile is instantiated NOW,
-    -- not after releasing.
+    -- Tile appears on the SECOND
+    -- PRESS: the "click and a half".
     --------------------------------
 
     hl.dispatch(
@@ -1360,16 +1427,13 @@ hl.on(
         local generation =
             splay_spawn_generation
 
-
         local direction =
             splay_spawn_direction
 
 
         --------------------------------
-        -- Hyprland 0.56.x may require
-        -- one event-loop iteration after
-        -- window.open before doing layout
-        -- interaction.
+        -- Let Dwindle finish inserting
+        -- the new target first.
         --------------------------------
 
         hl.timer(
@@ -1387,33 +1451,65 @@ hl.on(
                 end
 
 
-                --------------------------------
-                -- This new window belongs to
-                -- our pending Splay spawn.
-                --------------------------------
-
                 splay_spawn_pending = false
                 splay_spawn_direction = nil
 
 
                 --------------------------------
-                -- CLICK AND A HALF:
-                --
-                -- The user's second press is
-                -- still physically held.
-                --
-                -- Immediately turn this new
-                -- tile into an active resize.
+                -- If the user already released
+                -- the second press, leave the
+                -- newly spawned tile normally.
                 --------------------------------
 
-                if splay_mouse_down then
+                if not splay_mouse_down then
+                    return
+                end
 
-                    splay_begin_resize(
-                        window,
-                        true
+
+                --------------------------------
+                -- The new tile normally gains
+                -- focus anyway, but make the
+                -- target explicit.
+                --------------------------------
+
+                hl.dispatch(
+                    hl.dsp.focus({
+                        window = window,
+                    })
+                )
+
+
+                --------------------------------
+                -- User clicked an edge of the
+                -- OLD tile.
+                --
+                -- The corresponding grabbed
+                -- edge of the NEW tile is the
+                -- opposite one.
+                --
+                -- Example:
+                --
+                -- old right edge → new tile is
+                -- on the right → cursor is on
+                -- the NEW tile's LEFT edge.
+                --------------------------------
+
+                local edge =
+                    splay_opposite_edge(
+                        direction
                     )
 
-                end
+
+                --------------------------------
+                -- New tile immediately enters
+                -- resize state.
+                --------------------------------
+
+                splay_begin_resize(
+                    window,
+                    edge,
+                    true
+                )
 
             end,
             {
@@ -1436,17 +1532,27 @@ hl.bind(
 
         splay_mouse_down = true
 
-        splay_press_action = nil
+        splay_press_kind = nil
         splay_press_direction = nil
-        splay_press_window = nil
 
 
         local direction, window =
             get_splay_edge()
 
 
+        --------------------------------
+        -- Click somewhere else:
+        -- cancel any pending first click
+        -- but otherwise leave mouse
+        -- behavior untouched.
+        --------------------------------
+
         if not direction
             or not window then
+
+            if splay_click_pending then
+                splay_cancel_click()
+            end
 
             return
         end
@@ -1455,14 +1561,9 @@ hl.bind(
         --------------------------------
         -- SECOND PRESS
         --
-        -- We deliberately require only
-        -- the same edge direction.
-        --
-        -- Shared tiled edges can change
-        -- which adjacent window Hyprland
-        -- reports under the cursor, so
-        -- comparing window addresses here
-        -- makes the double-click fragile.
+        -- First click was completed and
+        -- this press is on the same edge
+        -- direction.
         --------------------------------
 
         if splay_click_pending
@@ -1473,19 +1574,15 @@ hl.bind(
             splay_cancel_click()
 
 
-            splay_press_action =
-                "spawn"
-
+            splay_press_kind = "spawn"
             splay_press_direction =
                 direction
 
-            splay_press_window =
-                window
-
 
             --------------------------------
-            -- CLICK AND A HALF:
-            -- create immediately.
+            -- Instantiate immediately.
+            --
+            -- Do NOT wait for release.
             --------------------------------
 
             splay_spawn_tile(
@@ -1499,8 +1596,8 @@ hl.bind(
 
 
         --------------------------------
-        -- A different edge starts a new
-        -- click sequence.
+        -- Different edge invalidates an
+        -- old first click.
         --------------------------------
 
         if splay_click_pending then
@@ -1509,34 +1606,24 @@ hl.bind(
 
 
         --------------------------------
-        -- NORMAL EDGE PRESS
+        -- Possible normal resize.
         --
-        -- Begin a possible resize.
-        --
-        -- If geometry never changes,
-        -- release reinterprets this as
-        -- the first click.
+        -- Nothing actually changes until
+        -- cursor movement crosses
+        -- SPLAY_DRAG_THRESHOLD.
         --------------------------------
 
-        splay_press_action =
-            "normal"
-
-        splay_press_direction =
-            direction
-
-        splay_press_window =
-            window
+        splay_press_kind = "normal"
+        splay_press_direction = direction
 
 
         splay_begin_resize(
             window,
+            direction,
             false
         )
 
-    end,
-    {
-        mouse = true,
-    }
+    end
 )
 
 
@@ -1551,20 +1638,15 @@ hl.bind(
         splay_mouse_down = false
 
 
-        --------------------------------
-        -- Preserve press information
-        -- before anything resets state.
-        --------------------------------
+        local press_kind =
+            splay_press_kind
 
-        local action =
-            splay_press_action
-
-        local direction =
+        local press_direction =
             splay_press_direction
 
 
         --------------------------------
-        -- Finalize active resize.
+        -- Complete current resize.
         --------------------------------
 
         local resized =
@@ -1572,15 +1654,16 @@ hl.bind(
 
 
         --------------------------------
-        -- Real resize completed:
-        -- cyan kept it / red closed it.
+        -- Resize completed:
+        --
+        -- CYAN preserved it.
+        -- RED closed it.
         --------------------------------
 
         if resized then
 
-            splay_press_action = nil
+            splay_press_kind = nil
             splay_press_direction = nil
-            splay_press_window = nil
 
             return
 
@@ -1588,57 +1671,49 @@ hl.bind(
 
 
         --------------------------------
-        -- SECOND PRESS that created a
-        -- tile must never be interpreted
-        -- as another "first click".
-        --------------------------------
-
-        if action == "spawn" then
-
-            splay_press_action = nil
-            splay_press_direction = nil
-            splay_press_window = nil
-
-            return
-
-        end
-
-
-        --------------------------------
-        -- No geometry changed.
+        -- Second press was released
+        -- before window.open managed to
+        -- enter resize mode.
         --
-        -- This was therefore the first
-        -- click of the click-and-a-half
-        -- subdivision gesture.
+        -- Cancel resize ownership but
+        -- allow the process/window itself
+        -- to appear normally.
         --------------------------------
 
-        if action == "normal"
-            and direction then
+        if press_kind == "spawn" then
+
+            splay_spawn_pending = false
+            splay_spawn_direction = nil
+
+            splay_press_kind = nil
+            splay_press_direction = nil
+
+            return
+
+        end
+
+
+        --------------------------------
+        -- Normal press produced no drag:
+        --
+        -- that is the FIRST CLICK.
+        --------------------------------
+
+        if press_kind == "normal"
+            and press_direction then
 
             splay_arm_click(
-                direction
+                press_direction
             )
 
         end
 
 
-        splay_press_action = nil
+        splay_press_kind = nil
         splay_press_direction = nil
-        splay_press_window = nil
 
     end,
     {
-        --------------------------------
-        -- Plain release callback.
-        --
-        -- In 0.56.2 there have been
-        -- reports involving mouse bind
-        -- release state; keeping this
-        -- separate from the interactive
-        -- mouse dispatcher makes our
-        -- state transition idempotent.
-        --------------------------------
-
         release = true,
     }
 )
