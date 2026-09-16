@@ -97,7 +97,7 @@ local splay_focus_locked = false
 
 -- New tiles try to appear as a thin
 -- extrusion of this many pixels.
-local SPLAY_SPAWN_SIZE = 96
+local SPLAY_SPAWN_SIZE = 1
 
 -- Tile survival threshold.
 local SPLAY_MIN_WIDTH  = 160
