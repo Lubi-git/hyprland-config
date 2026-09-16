@@ -23,7 +23,7 @@ hl.monitor({
 
 local terminal    = "kitty"
 local fileManager = terminal .. " -e yazi"
-local launcher    = terminal .. " -e fsel"
+local launcher    = terminal .. " -e lapi-launcher"
 
 
 --------------------------------
