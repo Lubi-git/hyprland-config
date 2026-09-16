@@ -33,9 +33,6 @@ local launcher    = terminal .. " -e fsel"
 local splay_click_pending = false
 local splay_click_direction = nil
 
-local splay_spawn_pending = false
-local splay_spawn_direction = nil
-
 local splay_new_tile = false
 
 
@@ -44,12 +41,11 @@ local splay_new_tile = false
 --------------------------------
 
 local splay_resize_active = false
-local splay_resize_direction = nil
+local splay_resize_window = nil
 
-local splay_resize_start_x = 0
-local splay_resize_start_y = 0
+local splay_resize_valid = true
 
-local splay_resize_valid = false
+local splay_resize_feedback_state = nil
 local splay_resize_timer = nil
 
 
@@ -57,10 +53,22 @@ local splay_resize_timer = nil
 ---- SPLAY RESIZE SETTINGS -----
 --------------------------------
 
-local SPLAY_MIN_SIZE = 9
+-- If either dimension falls below its limit,
+-- releasing the resize closes the tile.
 
--- Border feedback width.
+local SPLAY_MIN_WIDTH  = 160
+local SPLAY_MIN_HEIGHT = 120
+
+
+-- Resize feedback border.
+
 local SPLAY_FEEDBACK_BORDER = 5
+
+local SPLAY_FEEDBACK_KEEP =
+    "rgb(00D9FF)"
+
+local SPLAY_FEEDBACK_CLOSE =
+    "rgb(FF3B30)"
 
 
 -------------------------------
@@ -307,7 +315,7 @@ hl.config({
 
 
 ---------------------
----- INPUT ---------
+---- INPUT ----------
 ---------------------
 
 hl.config({
@@ -355,7 +363,7 @@ local mainMod = "SUPER"
 
 
 ---------------------------
----- APPLICATIONS --------
+---- APPLICATIONS ---------
 ---------------------------
 
 hl.bind(
@@ -380,7 +388,7 @@ hl.bind(
 
 
 ---------------------------
----- WINDOW BEHAVIOUR ----
+---- WINDOW BEHAVIOUR -----
 ---------------------------
 
 hl.bind(
@@ -397,7 +405,7 @@ hl.bind(
 
 
 ---------------------------
----- FOCUS ---------------
+---- FOCUS ----------------
 ---------------------------
 
 hl.bind(
@@ -461,7 +469,14 @@ end
 local function get_splay_edge()
 
     local cursor = hl.get_cursor_pos()
+
+    if not cursor then
+        return nil
+    end
+
+
     local windows = hl.get_windows()
+
 
     for _, window in ipairs(windows) do
 
@@ -532,46 +547,170 @@ local function get_splay_edge()
 
     end
 
+
     return nil
+
 end
 
 
 --------------------------------
----- SPLAY DISTANCE ------------
+---- SPLAY TILE VALIDITY -------
 --------------------------------
 
-local function splay_get_distance()
+local function splay_tile_is_valid(window)
 
-    local cursor = hl.get_cursor_pos()
-
-    if not cursor then
-        return 0
+    if not window then
+        return true
     end
 
 
-    local dx = cursor.x - splay_resize_start_x
-    local dy = cursor.y - splay_resize_start_y
-
-
-    if splay_resize_direction == "l"
-        or splay_resize_direction == "r" then
-
-        return math.abs(dx)
-
-    elseif splay_resize_direction == "u"
-        or splay_resize_direction == "d" then
-
-        return math.abs(dy)
-
+    if not window.size then
+        return true
     end
 
 
-    return 0
+    local width = window.size.x
+    local height = window.size.y
+
+
+    if width < SPLAY_MIN_WIDTH then
+        return false
+    end
+
+
+    if height < SPLAY_MIN_HEIGHT then
+        return false
+    end
+
+
+    return true
+
 end
 
 
 --------------------------------
----- SPLAY FEEDBACK ------------
+---- SPLAY SET FEEDBACK --------
+--------------------------------
+
+local function splay_set_feedback(valid)
+
+    local window = splay_resize_window
+
+    if not window then
+        return
+    end
+
+
+    local state
+
+    if valid then
+        state = "keep"
+    else
+        state = "close"
+    end
+
+
+    --------------------------------
+    -- Do nothing if feedback
+    -- already matches current state.
+    --------------------------------
+
+    if state == splay_resize_feedback_state then
+        return
+    end
+
+
+    splay_resize_feedback_state = state
+
+
+    local color
+
+    if valid then
+        color = SPLAY_FEEDBACK_KEEP
+    else
+        color = SPLAY_FEEDBACK_CLOSE
+    end
+
+
+    --------------------------------
+    -- Show border only on the tile
+    -- currently being resized.
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            window = window,
+            prop = "border_size",
+            value = tostring(
+                SPLAY_FEEDBACK_BORDER
+            ),
+        })
+    )
+
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            window = window,
+            prop = "border_color",
+            value = color,
+        })
+    )
+
+
+    --------------------------------
+    -- Force the newly changed
+    -- properties to be visible now.
+    --
+    -- This only runs when changing
+    -- cyan <-> red, not every frame.
+    --------------------------------
+
+    hl.exec_scheduled_prop_refresh_immediately()
+
+end
+
+
+--------------------------------
+---- SPLAY CLEAR FEEDBACK ------
+--------------------------------
+
+local function splay_clear_feedback(window)
+
+    if not window then
+        return
+    end
+
+
+    --------------------------------
+    -- Return the tile to its normal
+    -- rules/configuration.
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            window = window,
+            prop = "border_size",
+            value = "unset",
+        })
+    )
+
+
+    hl.dispatch(
+        hl.dsp.window.set_prop({
+            window = window,
+            prop = "border_color",
+            value = "unset",
+        })
+    )
+
+
+    hl.exec_scheduled_prop_refresh_immediately()
+
+end
+
+
+--------------------------------
+---- SPLAY UPDATE FEEDBACK -----
 --------------------------------
 
 local function splay_update_feedback()
@@ -581,40 +720,39 @@ local function splay_update_feedback()
     end
 
 
-    local distance = splay_get_distance()
+    local window = splay_resize_window
 
-    local valid = distance >= SPLAY_MIN_SIZE
-
-
-    if valid ~= splay_resize_valid then
-
-        splay_resize_valid = valid
-
-        --------------------------------
-        -- Border width is the only
-        -- feedback we can safely change
-        -- with the currently verified ABI.
-        --------------------------------
-
-        if valid then
-
-            hl.config({
-                general = {
-                    border_size = SPLAY_FEEDBACK_BORDER,
-                },
-            })
-
-        else
-
-            hl.config({
-                general = {
-                    border_size = SPLAY_FEEDBACK_BORDER,
-                },
-            })
-
-        end
-
+    if not window then
+        return
     end
+
+
+    local valid =
+        splay_tile_is_valid(window)
+
+
+    splay_resize_valid = valid
+
+
+    splay_set_feedback(valid)
+
+end
+
+
+--------------------------------
+---- SPLAY STOP TIMER ----------
+--------------------------------
+
+local function splay_stop_resize_timer()
+
+    if not splay_resize_timer then
+        return
+    end
+
+
+    splay_resize_timer:set_enabled(false)
+
+    splay_resize_timer = nil
 
 end
 
@@ -625,43 +763,53 @@ end
 
 local function splay_start_resize()
 
-    local cursor = hl.get_cursor_pos()
+    local window = hl.get_active_window()
 
-    if not cursor then
+    if not window then
+        return
+    end
+
+
+    if not window.size then
         return
     end
 
 
     splay_resize_active = true
+    splay_resize_window = window
 
-    splay_resize_start_x = cursor.x
-    splay_resize_start_y = cursor.y
-
-    splay_resize_valid = false
+    splay_resize_feedback_state = nil
 
 
     --------------------------------
-    -- Show feedback border.
+    -- Evaluate initial tile size.
     --------------------------------
 
-    hl.config({
-        general = {
-            border_size = SPLAY_FEEDBACK_BORDER,
-        },
-    })
+    splay_resize_valid =
+        splay_tile_is_valid(window)
 
 
     --------------------------------
-    -- Track cursor distance.
+    -- Show initial cyan/red state.
     --------------------------------
 
-    if splay_resize_timer then
+    splay_set_feedback(
+        splay_resize_valid
+    )
 
-        splay_resize_timer:stop()
-        splay_resize_timer = nil
 
-    end
+    --------------------------------
+    -- Stop old timer if one somehow
+    -- survived a previous resize.
+    --------------------------------
 
+    splay_stop_resize_timer()
+
+
+    --------------------------------
+    -- Poll tile geometry while
+    -- interactive resize is active.
+    --------------------------------
 
     splay_resize_timer = hl.timer(
         function()
@@ -689,48 +837,59 @@ local function splay_end_resize()
     end
 
 
-    splay_update_feedback()
+    local window = splay_resize_window
 
 
-    local valid = splay_resize_valid
+    --------------------------------
+    -- Always evaluate actual final
+    -- geometry on mouse release.
+    --------------------------------
+
+    local valid =
+        splay_tile_is_valid(window)
 
 
+    splay_resize_valid = valid
     splay_resize_active = false
 
 
-    if splay_resize_timer then
+    --------------------------------
+    -- Stop geometry polling.
+    --------------------------------
 
-        splay_resize_timer:stop()
-        splay_resize_timer = nil
-
-    end
+    splay_stop_resize_timer()
 
 
     --------------------------------
-    -- Remove tile if below minimum.
+    -- Remove cyan/red feedback.
     --------------------------------
 
-    if not valid then
+    splay_clear_feedback(window)
+
+
+    --------------------------------
+    -- If the tile crossed either
+    -- minimum dimension, close it.
+    --------------------------------
+
+    if not valid and window then
 
         hl.dispatch(
-            hl.dsp.window.close()
+            hl.dsp.window.close({
+                window = window,
+            })
         )
 
     end
 
 
     --------------------------------
-    -- Restore borderless layout.
+    -- Reset resize state.
     --------------------------------
 
-    hl.config({
-        general = {
-            border_size = 0,
-        },
-    })
-
-
-    splay_resize_direction = nil
+    splay_resize_window = nil
+    splay_resize_feedback_state = nil
+    splay_resize_valid = true
 
 end
 
@@ -758,18 +917,22 @@ local function splay_click()
         splay_click_direction = direction
 
 
-        hl.timer(function()
+        hl.timer(
+            function()
 
-            splay_click_pending = false
-            splay_click_direction = nil
+                splay_click_pending = false
+                splay_click_direction = nil
 
-        end, {
-            timeout = 250,
-            type = "oneshot",
-        })
+            end,
+            {
+                timeout = 250,
+                type = "oneshot",
+            }
+        )
 
 
         return
+
     end
 
 
@@ -782,6 +945,7 @@ local function splay_click()
         splay_click_direction = direction
 
         return
+
     end
 
 
@@ -791,16 +955,6 @@ local function splay_click()
 
     splay_click_pending = false
     splay_click_direction = nil
-
-
-    --------------------------------
-    -- Register new tile.
-    --------------------------------
-
-    splay_spawn_pending = true
-    splay_spawn_direction = direction
-
-    splay_resize_direction = direction
 
 
     --------------------------------
@@ -828,7 +982,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Preselect.
+    -- Preselect new split.
     --------------------------------
 
     hl.dispatch(
@@ -839,7 +993,7 @@ local function splay_click()
 
 
     --------------------------------
-    -- Create tile.
+    -- Create new tile.
     --------------------------------
 
     hl.dispatch(
@@ -848,7 +1002,8 @@ local function splay_click()
 
 
     --------------------------------
-    -- Next press starts resize.
+    -- The next mouse press begins
+    -- resizing the newly created tile.
     --------------------------------
 
     splay_new_tile = true
@@ -857,28 +1012,46 @@ end
 
 
 --------------------------------
----- SPLAY MOUSE BIND ----------
+---- SPLAY MOUSE PRESS ---------
 --------------------------------
 
 hl.bind(
     "mouse:272",
     function()
 
+        --------------------------------
+        -- A tile was just created.
+        --
+        -- Next press begins Splay's
+        -- interactive resize state.
+        --------------------------------
+
         if splay_new_tile then
 
             splay_new_tile = false
 
+
             splay_start_resize()
 
 
-            hl.dispatch(
-                hl.dsp.window.resize()
-            )
+            if splay_resize_active then
+
+                hl.dispatch(
+                    hl.dsp.window.resize()
+                )
+
+            end
 
 
             return
+
         end
 
+
+        --------------------------------
+        -- Otherwise detect Splay's
+        -- double-click edge gesture.
+        --------------------------------
 
         splay_click()
 
@@ -890,22 +1063,39 @@ hl.bind(
 
 
 --------------------------------
----- MOUSE RELEASE -------------
+---- SPLAY MOUSE RELEASE -------
 --------------------------------
 
 hl.bind(
     "mouse:272",
     function()
 
+        --------------------------------
+        -- Releasing the mouse ends the
+        -- current Splay resize.
+        --------------------------------
+
         if splay_resize_active then
 
             splay_end_resize()
 
             return
+
         end
 
 
-        splay_new_tile = false
+        --------------------------------
+        -- IMPORTANT:
+        --
+        -- Do NOT clear splay_new_tile
+        -- here.
+        --
+        -- The second click that creates
+        -- the tile necessarily generates
+        -- a release event. Clearing the
+        -- flag here would make the next
+        -- press resize path impossible.
+        --------------------------------
 
     end,
     {
