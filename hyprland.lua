@@ -21,9 +21,7 @@ hl.monitor({
 ---- MY PROGRAMS ----
 ---------------------
 
-local terminal    = "kitty"
-local fileManager = terminal .. " -e yazi"
-local launcher    = terminal .. " -e lapi-launcher"
+local launcher = "kitty -e lapi-launcher"
 
 
 --------------------------------
@@ -89,6 +87,10 @@ local splay_resize_timer = nil
 
 local splay_native_resize_enabled = true
 local splay_focus_locked = false
+
+-- Prevent duplicate automatic launcher spawns
+-- while the root tile is still opening.
+local splay_root_launch_pending = false
 
 
 --------------------------------
@@ -432,113 +434,6 @@ hl.config({
         disable_hyprland_logo = true,
     },
 })
-
-
----------------------
----- KEYBINDINGS ----
----------------------
-
-local mainMod = "SUPER"
-
-
----------------------------
----- APPLICATIONS ---------
----------------------------
-
-hl.bind(
-    mainMod .. " + Q",
-    hl.dsp.exec_cmd(terminal)
-)
-
-hl.bind(
-    mainMod .. " + E",
-    hl.dsp.exec_cmd(fileManager)
-)
-
-hl.bind(
-    mainMod .. " + R",
-    hl.dsp.exec_cmd(launcher)
-)
-
-hl.bind(
-    mainMod .. " + C",
-    hl.dsp.window.close()
-)
-
-
----------------------------
----- WINDOW BEHAVIOUR -----
----------------------------
-
-hl.bind(
-    mainMod .. " + V",
-    hl.dsp.window.float({
-        action = "toggle",
-    })
-)
-
-hl.bind(
-    mainMod .. " + J",
-    hl.dsp.layout("togglesplit")
-)
-
-
----------------------------
----- FOCUS ----------------
----------------------------
-
-hl.bind(
-    mainMod .. " + left",
-    hl.dsp.focus({
-        direction = "left",
-    })
-)
-
-hl.bind(
-    mainMod .. " + right",
-    hl.dsp.focus({
-        direction = "right",
-    })
-)
-
-hl.bind(
-    mainMod .. " + up",
-    hl.dsp.focus({
-        direction = "up",
-    })
-)
-
-hl.bind(
-    mainMod .. " + down",
-    hl.dsp.focus({
-        direction = "down",
-    })
-)
-
-
----------------------------
----- WORKSPACES -----------
----------------------------
-
-for i = 1, 10 do
-
-    local key = i % 10
-
-    hl.bind(
-        mainMod .. " + " .. key,
-        hl.dsp.focus({
-            workspace = i,
-        })
-    )
-
-    hl.bind(
-        mainMod .. " + SHIFT + " .. key,
-        hl.dsp.window.move({
-            workspace = i,
-        })
-    )
-
-end
 
 
 --------------------------------
@@ -1834,7 +1729,7 @@ local function splay_spawn_tile(
 
     hl.dispatch(
         hl.dsp.exec_cmd(
-            terminal
+            launcher
         )
     )
 
@@ -2189,6 +2084,211 @@ hl.bind(
         release = true,
     }
 )
+
+
+--------------------------------
+---- SPLAY ROOT TILE -----------
+--------------------------------
+
+local function splay_active_workspace_has_tile()
+
+    local workspace =
+        hl.get_active_workspace()
+
+
+    if not workspace then
+        return false
+    end
+
+
+    local windows =
+        hl.get_windows()
+
+
+    for _, window in ipairs(windows) do
+
+        if window
+            and window.workspace == workspace
+            and window.mapped
+            and not window.floating then
+
+            return true
+
+        end
+
+    end
+
+
+    return false
+
+end
+
+
+--------------------------------
+---- ENSURE ROOT TILE ----------
+--------------------------------
+
+local function splay_ensure_root_tile()
+
+    if splay_active_workspace_has_tile() then
+
+        splay_root_launch_pending =
+            false
+
+        return
+
+    end
+
+
+    if splay_root_launch_pending then
+        return
+    end
+
+
+    splay_root_launch_pending =
+        true
+
+
+    --------------------------------
+    -- An empty Splay workspace has
+    -- a single neutral state:
+    -- LAPI Launcher as its root tile.
+    --------------------------------
+
+    hl.dispatch(
+        hl.dsp.exec_cmd(
+            launcher
+        )
+    )
+
+end
+
+
+--------------------------------
+---- SCHEDULE ROOT CHECK -------
+--------------------------------
+
+local function splay_schedule_root_check()
+
+    hl.timer(
+        function()
+
+            splay_ensure_root_tile()
+
+        end,
+        {
+            timeout = 1,
+            type = "oneshot",
+        }
+    )
+
+end
+
+
+--------------------------------
+---- ROOT TILE EVENTS ----------
+--------------------------------
+
+hl.on(
+    "hyprland.start",
+    function()
+
+        splay_schedule_root_check()
+
+    end
+)
+
+
+hl.on(
+    "config.reloaded",
+    function()
+
+        splay_schedule_root_check()
+
+    end
+)
+
+
+hl.on(
+    "workspace.active",
+    function()
+
+        splay_schedule_root_check()
+
+    end
+)
+
+
+hl.on(
+    "window.destroy",
+    function()
+
+        splay_schedule_root_check()
+
+    end
+)
+
+
+hl.on(
+    "window.move_to_workspace",
+    function()
+
+        splay_schedule_root_check()
+
+    end
+)
+
+
+--------------------------------
+---- ROOT TILE OPENED ----------
+--------------------------------
+
+hl.on(
+    "window.open",
+    function(window)
+
+        local workspace =
+            hl.get_active_workspace()
+
+
+        if not workspace
+            or not window then
+
+            return
+
+        end
+
+
+        if window.workspace == workspace
+            and window.mapped
+            and not window.floating then
+
+            splay_root_launch_pending =
+                false
+
+        else
+
+            --------------------------------
+            -- A floating window is not a tile.
+            -- If it is the only window visible,
+            -- preserve the Splay root beneath it.
+            --------------------------------
+
+            splay_schedule_root_check()
+
+        end
+
+    end
+)
+
+
+--------------------------------
+---- INITIAL ROOT CHECK --------
+--------------------------------
+
+-- Also covers config evaluation paths where
+-- hyprland.start has already fired.
+splay_schedule_root_check()
 
 
 --------------------------------
