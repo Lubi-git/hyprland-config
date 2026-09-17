@@ -21,7 +21,7 @@ hl.monitor({
 ---- MY PROGRAMS ----
 ---------------------
 
-local launcher = "kitty -e lapi-launcher"
+local launcher = "kitty -o confirm_os_window_close=0 -e lapi-launcher"
 
 
 --------------------------------
